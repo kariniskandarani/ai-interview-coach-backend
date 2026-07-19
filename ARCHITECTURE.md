@@ -97,11 +97,15 @@ isn't added until a real failure is hit.
 - **Session state (must-have):** Streamlit's built-in `session_state` — in-memory, per-browser
   session. CV text, JD text, question set, conversation history, evaluations, scores all live
   here during the interview. Zero setup.
-- **Persistence (should-have): SQLite.** Free, zero-config, single file, ships with Python's
-  standard library. Lets a user's report survive a page refresh and enables a "past
-  interviews" history screen — a genuinely nice demo feature for very little cost. A hosted DB
-  (Supabase/Postgres) is explicitly skipped — this app is a single-user local demo; a
-  networked database adds deployment risk for a feature judges won't notice.
+- **Persistence (should-have): Supabase (hosted Postgres).** Free tier, lets a user's report
+  survive a page refresh and enables a "past interviews" history screen. Originally SQLite was
+  chosen here for zero-config simplicity, but that decision had a real flaw: Streamlit
+  Community Cloud's free containers are ephemeral, so a local SQLite file isn't reliably
+  persistent across restarts/redeploys — exactly the scenario this feature needs to survive
+  during a live demo. Supabase's hosted Postgres actually persists regardless of container
+  restarts, at the cost of a new account/project, an SDK dependency (`supabase-py`), and a
+  live network dependency for every save. Worth the tradeoff specifically because "does the
+  history feature actually work when deployed" was the whole point of building it.
 
 ### Auth
 
@@ -113,7 +117,7 @@ working interview flow. Flagged explicitly so it doesn't get built "for complete
 
 **Decision: none needed.** Uploaded PDFs are read into memory, text is extracted immediately,
 and the raw file is discarded. No S3/blob storage — there's nothing to persist beyond the
-extracted text, which already lives in session state / SQLite.
+extracted text, which already lives in session state / Supabase.
 
 ### Deployment
 
@@ -136,11 +140,11 @@ invested.
 |---|---|
 | Language | Python |
 | Frontend + App shell | Streamlit |
-| LLM | Google Gemini 2.5 Flash (free tier) |
+| LLM | Google Gemini 3.5 Flash (free tier) |
 | Orchestration | Plain Python + Pydantic schemas (no framework) |
 | PDF parsing | pdfplumber |
 | Retrieval | None — full context stuffing |
-| Persistence | SQLite (should-have), session_state (must-have) |
+| Persistence | Supabase/Postgres (should-have), session_state (must-have) |
 | Auth | None |
 | File storage | None (in-memory only) |
 | Deployment | Streamlit Community Cloud |
@@ -179,8 +183,8 @@ invested.
               ┌──────────────┴───────────────┐
               ▼                               ▼
     ┌───────────────────┐          ┌────────────────────┐
-    │  Gemini API        │          │  SQLite (local)     │
-    │  (all AI calls)    │          │  session history     │
+    │  Gemini API        │          │  Supabase (Postgres) │
+    │  (all AI calls)    │          │  session history      │
     └───────────────────┘          └────────────────────┘
 ```
 
@@ -222,7 +226,7 @@ invested.
         │
         ▼
 7. Report rendered in Streamlit (charts + text), optionally
-   saved to SQLite, downloadable
+   saved to Supabase, downloadable
 ```
 
 **Where AI is used:** steps 3, 4, evaluator (per answer), and 6 — four distinct LLM call
@@ -247,7 +251,7 @@ final report call, so later calls stay coherent with everything said before.
 
 ### Should Have (do these if Must-Have finishes with time to spare)
 - Adaptive follow-up questions (evaluator decides to probe deeper)
-- SQLite persistence of past interview sessions
+- Supabase persistence of past interview sessions
 - Interviewer persona selection (friendly HR / tough technical lead / startup founder)
 - Basic pytest coverage on the logic layer
 - Polished Streamlit theming/branding
@@ -279,7 +283,7 @@ is the "core product" — after today there's a demoable app, even if unpolished
 
 **Day 3 — Report, persistence, persona feature, polish**
 Build `report_builder.py` + report dashboard page (charts via Streamlit's native plotting).
-Add SQLite persistence and persona selection. Add pytest for the logic layer. Visual polish
+Add Supabase persistence and persona selection. Add pytest for the logic layer. Visual polish
 pass on all three pages.
 
 **Day 4 — Innovation feature, hardening, deploy**

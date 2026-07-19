@@ -194,3 +194,105 @@ isolation.
 profile (gRPC vs. REST architecture, Kubernetes-based connection pooling, distributed rate
 limiting, mentoring, leading design discussions) rather than generic questions — confirms the
 personalization is actually working end to end, not just structurally valid.
+
+---
+
+## Version 3 — Evaluator & Interview Engine (Day 2)
+
+### `evaluator.py`
+
+**Concept — what it does:** scores a single answer to a single question (1-10), gives
+clarity/relevance feedback, checks STAR structure if the question is Behavioral, and decides
+whether a follow-up question is warranted — writing one in the same call if so.
+
+**Design decisions:**
+
+- Follow-up generation happens *inside* this one call (`Evaluation.follow_up_needed` +
+  `follow_up_question`), not as a separate 5th LLM call type — keeps the app at the 4 call
+  types the architecture doc planned (profile, questions, evaluate, report).
+- First real use of genuine `Optional` fields (`star_feedback: str | None`,
+  `follow_up_question: str | None`), as opposed to the `Literal` used for `seniority`. Chosen
+  here because `star_feedback` truly doesn't apply to Technical/HR questions — forcing a
+  non-null placeholder there would be worse than a real null. This was unverified against the
+  live API until this session's smoke test (see below).
+
+### `interview_engine.py`
+
+**Concept — what it does:** the state machine driving the Q&A loop. `InterviewSession` holds
+the current question, calls `evaluate_answer()` when the user submits an answer, records the
+result in a transcript, and decides whether to ask a follow-up or move to the next scripted
+question.
+
+**Design decisions:**
+
+- Plain Python class, zero Streamlit dependency — same reasoning as every other module. The
+  Streamlit page will own one `InterviewSession` instance in `session_state` and call
+  `submit_answer()` on it.
+- Follow-ups are capped at `MAX_FOLLOW_UPS_PER_QUESTION = 1`. Without a cap, a strict evaluator
+  could in theory chain follow-ups indefinitely — a hard cap keeps interview length predictable
+  for a live demo.
+
+**A new testing decision:** `evaluate_answer` is **mocked** in `interview_engine`'s tests
+(`monkeypatch.setattr("src.interview_engine.evaluate_answer", ...)`), unlike `pdfplumber`
+earlier, which was deliberately tested against a real PDF. The difference: here the thing
+under test is *our own control-flow logic* (does the state machine advance/follow-up/cap/finish
+correctly?), not the LLM's behavior — mocking isolates that logic from a slow, non-deterministic
+external dependency. The LLM integration itself is still verified separately, live, via the
+smoke test.
+
+**Verification:** `scripts/smoke_test_interview_engine.py` chains the full pipeline (profile →
+questions → interview session) against the real API, deliberately answering the first question
+vaguely to check the follow-up path actually triggers. Results confirmed all three open
+questions at once: (1) nullable fields work correctly against the live API —
+`star_feedback=None` came back cleanly for Technical questions; (2) the follow-up loop
+triggers and is correctly capped — transcript ended with exactly 4 entries (2 questions × up
+to 1 follow-up each) instead of looping forever; (3) the evaluator genuinely checks relevance
+rather than rewarding confident-sounding text — a hardcoded "strong answer" about a Redis rate
+limiter scored 1-2/10 when reused against unrelated questions (N+1 queries, mocking S3 in
+pytest), correctly penalized as off-topic. That was a flaw in the smoke test's canned answer,
+not in `evaluator.py` — arguably good evidence the scoring isn't just rubber-stamping.
+
+---
+
+## Version 4 — Persistence (Day 2, mid-build pivot)
+
+### `persistence.py`
+
+**Concept — what it does:** saves and loads interview session records (candidate profile +
+full transcript) so a user's history survives beyond one browser session.
+
+**Why Supabase instead of the originally-planned SQLite:** SQLite was the original
+architecture decision (zero-config, ships with Python). It had a real flaw that only became
+relevant once we thought through actual deployment: Streamlit Community Cloud's free
+containers are ephemeral, so a local SQLite file isn't reliably persistent across
+restarts/redeploys — exactly the failure mode this feature exists to prevent. Supabase's
+hosted Postgres survives container restarts because the database lives outside the app's
+container entirely. Full reasoning: [LEARNING_NOTES.md](LEARNING_NOTES.md). Cost of the
+switch: a Supabase project/account, the `supabase-py` SDK, and a live network dependency for
+every save — acceptable since persistence is a should-have already scheduled, not a
+last-minute addition.
+
+**Design decisions:**
+
+- **One table, `jsonb` columns, not a normalized schema** (`sql/001_create_interview_sessions.sql`).
+  A session's transcript is always read/written as one unit and never queried row-by-row, so
+  normalizing it into linked tables would add join complexity for zero practical benefit at
+  this scale — same "don't build structure the problem doesn't need" reasoning as everywhere
+  else in this project.
+- **Uses the `service_role`/secret key, not the `anon`/publishable key.** Because Streamlit
+  runs entirely server-side, the secret key never reaches a browser, so it's safe to use here
+  — and it bypasses Row Level Security entirely, letting us skip writing RLS policies for a
+  single-user demo app.
+- Mirrors `llm_client.py`'s shape on purpose: a `_get_client()` that validates required env
+  vars and raises a clear `PersistenceError` before doing any network work, functions that
+  wrap the actual client calls in try/except to normalize failures into that same error type.
+
+**Implementation strategy:** `_transcript_to_json()` is a pure function (converts our
+dataclass/Pydantic objects into plain dicts for storage) and is the only thing tested offline.
+`_get_client()` raising `PersistenceError` without credentials is also tested offline, same
+pattern as `llm_client.py`. The real save/list calls are only verified via
+`scripts/smoke_test_persistence.py`.
+
+**Verification:** live run against the real Supabase project succeeded on the first try —
+saved a fake session, got back a real `uuid`, and `list_sessions()` correctly returned it with
+`created_at` and `role_type` populated.

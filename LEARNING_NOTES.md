@@ -101,21 +101,126 @@ to disk anywhere. It's fast and requires zero setup, but it's temporary: close t
 restart the app, or the server process restarts, and it's gone. That's the exact reason SQLite
 exists as a should-have — to survive beyond a single live session.
 
-## Would SQLite actually persist when hosted on Streamlit Cloud?
+## SQLite vs. Supabase persistence in deployed applications
 
-Important nuance: **locally, yes** — SQLite writes to a file on disk and it'll be there next
-time the app runs. **On Streamlit Community Cloud, not reliably.** Free hosted containers there
-are ephemeral — they can restart, sleep after inactivity, or get redeployed, and any local file
-(including a SQLite `.db`) can be wiped when that happens. There's no persistent disk guarantee
-on the free tier.
+*(This is the reasoning that led to switching the project's persistence layer from SQLite to
+Supabase — see [ARCHITECTURE.md](ARCHITECTURE.md) for the final decision.)*
 
-For this project's purposes that's fine: during development and during a live demo session,
-SQLite works perfectly (data persists across page refreshes within that running session). It
-just shouldn't be marketed as "your interview history is saved forever" on the free-tier
-deploy — treat it as "persists for this session/demo," not permanent storage. If long-term
-persistence across redeploys ever mattered, an externally-hosted DB (e.g., Supabase Postgres,
-or Turso for hosted SQLite) would be the fix — deliberately not doing that here, per the "skip
-hosted DB" decision in the architecture doc.
+### Key concept: persistence
+
+**Persistence** means data continues to exist even after refreshing the webpage, closing and
+reopening the application, restarting the server, or redeploying the application. If the data
+disappears after any of these events, it is **not persistent**.
+
+### SQLite
+
+SQLite is a **file-based relational database**. Unlike MySQL or PostgreSQL, it does not
+require a separate database server — all data is stored inside a single file, e.g.
+`interviews.db`. The application reads from and writes to this file whenever data needs to be
+stored or retrieved.
+
+**Advantages:** built into Python (`sqlite3`), very easy to set up, no additional software
+required, excellent for local development and small projects, fast because it runs locally.
+
+**Where the file lives:**
+
+```text
+Project/
+│
+├── app.py
+├── interviews.db
+└── requirements.txt
+```
+
+```text
+User → app.py → interviews.db
+```
+
+### The deployment problem
+
+Platforms like **Streamlit Community Cloud** run applications inside **containers** — isolated
+environments containing your application, installed libraries, and a temporary filesystem.
+Streamlit Community Cloud containers are **ephemeral**.
+
+**Ephemeral** means the container is temporary — it can be destroyed and recreated whenever the
+app is redeployed, the server restarts, the platform performs maintenance, or the container
+becomes inactive. When the container is deleted, **everything inside it is deleted too**,
+including local files:
+
+```text
+Container A                    Container A ❌ Deleted        New Container B
+-----------------              (restart)                     -----------------
+app.py                    →                              →   app.py
+interviews.db                                                (interviews.db is gone)
+```
+
+**Important clarification:** the issue is *not* that a new user session is created — a **user
+session** (browser tab, login session, Streamlit session state) is a different concept from a
+**container** (the server process running the app). If the container disappears, every local
+file disappears with it, regardless of what's happening in any user's session.
+
+**Why SQLite fails here:** the app needs a "past interviews" feature — complete an interview
+today, come back tomorrow, still see it. With SQLite on an ephemeral container:
+
+```text
+Interview Saved → interviews.db → Container Restarts → Database File Deleted → History Lost
+```
+
+The feature works fine locally and breaks the moment it's actually deployed.
+
+### Supabase
+
+Supabase provides a **hosted PostgreSQL database** — data lives on a dedicated database
+server, independent of the application server:
+
+```text
+User → Streamlit App → Internet → Supabase PostgreSQL Database
+```
+
+On a restart, the old Streamlit container is destroyed, a new one starts, and it simply
+reconnects to Supabase — all interview history is still there because the database never lived
+inside the container that got destroyed.
+
+**Advantages:** data survives server restarts and redeployments, supports multiple users,
+built on PostgreSQL, reliable for production deployments, enables persistent features like a
+history page.
+
+**Tradeoffs vs. SQLite:** Supabase requires creating a project, installing the `supabase-py`
+SDK, internet access, and turns every database operation into a network request — real added
+complexity compared to SQLite's zero-setup local file. It's worth it here specifically because
+the persistence feature is pointless if it silently breaks on deploy.
+
+### Architecture comparison
+
+```text
+SQLite:                                  Supabase:
+User → App → SQLite File                 User → App → Internet → Supabase PostgreSQL
+       (inside the container)                          (outside the container)
+
+Container deleted:                       Container deleted:
+SQLite File ❌ Deleted                    App Container ❌ Deleted
+                                          Supabase Database ✅ Still exists
+```
+
+### Interview-ready short answer
+
+> SQLite stores data in a local database file on the server. On platforms like Streamlit
+> Community Cloud, the server runs inside an ephemeral container whose local filesystem is
+> destroyed whenever the container is restarted or redeployed. As a result, the SQLite
+> database file is lost. Supabase solves this problem by storing the data in a hosted
+> PostgreSQL database that exists independently of the application server, ensuring that user
+> data persists across refreshes, restarts, and deployments.
+
+### Key takeaways
+
+- SQLite stores data in a local file.
+- A container is the environment running your application.
+- Ephemeral means the container can be destroyed and recreated.
+- Destroying the container deletes all local files, including a SQLite database.
+- The problem is **container recreation**, not **user sessions**.
+- Supabase stores data outside the application, so it survives container restarts.
+- For deployed applications that require persistent user data, a hosted database (e.g.,
+  Supabase/PostgreSQL) is generally a better choice than a local SQLite database.
 
 ## "Eval" and "persona pick"
 

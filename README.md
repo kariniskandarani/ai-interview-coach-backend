@@ -25,10 +25,31 @@
 | LLM | Google Gemini 3.5 Flash (free tier) |
 | PDF parsing | pdfplumber |
 | Structured output | Pydantic |
-| Persistence | SQLite |
+| Persistence | Supabase (Postgres) |
 | Deployment | Streamlit Community Cloud |
 
 Full reasoning behind every choice: [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## API usage per session
+
+Every step of the pipeline is exactly one Gemini call, except answer evaluation, which can
+trigger a second (a follow-up) per question:
+
+| Step | Calls |
+|---|---|
+| CV/JD analysis (`build_candidate_profile`) | 1 |
+| Question generation (`generate_questions`) | 1 (all 8 questions in a single call) |
+| Answer evaluation (`evaluate_answer`) | 1 per answer, up to 2 per question if a follow-up triggers (capped at 1 follow-up/question) |
+| Final report (`report_builder`, Day 3) | 1 |
+
+With 8 questions per interview, one full session costs:
+
+- **Best case** (no follow-ups needed): `1 + 1 + 8 + 1 = 11 calls`
+- **Worst case** (every question triggers its one allowed follow-up): `1 + 1 + 16 + 1 = 19 calls`
+
+The follow-up cap is what bounds the worst case — without it, a strict evaluator could chain
+follow-ups indefinitely. Well within Gemini's free-tier rate limits for a hackathon demo, but
+worth knowing for reasoning about live-demo latency (each call adds a few seconds).
 
 ## Setup
 
