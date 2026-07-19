@@ -44,3 +44,32 @@ class QuestionSet(BaseModel):
         description="An ordered list of interview questions, sequenced from easier/warm-up "
         "questions to more challenging ones."
     )
+
+
+class Evaluation(BaseModel):
+    score: int = Field(
+        ge=1, le=10, description="Overall score for this answer, from 1 (poor) to 10 (excellent)."
+    )
+    star_feedback: str | None = Field(
+        default=None,
+        description="Feedback on how well the answer follows the STAR structure (Situation, "
+        "Task, Action, Result). Only applicable to Behavioral questions — leave null for "
+        "Technical or HR questions.",
+    )
+    clarity_feedback: str = Field(
+        description="Feedback on how clear, concise, and well-structured the answer's "
+        "delivery was."
+    )
+    relevance_feedback: str = Field(
+        description="Feedback on how directly and completely the answer addressed what was "
+        "actually asked."
+    )
+    follow_up_needed: bool = Field(
+        description="Whether the answer was vague, incomplete, or surface-level enough that "
+        "a follow-up question would meaningfully improve the interview."
+    )
+    follow_up_question: str | None = Field(
+        default=None,
+        description="A natural, specific follow-up question probing deeper into a weak or "
+        "vague part of the answer. Null if follow_up_needed is False.",
+    )
