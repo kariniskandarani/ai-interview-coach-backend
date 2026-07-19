@@ -189,6 +189,52 @@ and the signature simplified to `response_schema: type[BaseModel] -> BaseModel`,
 would run identically — the only thing lost would be the editor's ability to know exactly
 which fields exist on the result. It's pure tooling/documentation value, not logic.
 
+## How `Field(description=...)` actually shapes LLM output
+
+It's tempting to treat a Pydantic field's `description=` as a comment for humans reading the
+code. It's not — with structured output, it's genuinely part of the prompt sent to the model.
+
+Concretely, `CandidateProfile.model_json_schema()` (from [schemas.py](../src/schemas.py))
+produces this:
+
+```json
+{
+  "properties": {
+    "seniority": {
+      "description": "The candidate's seniority level, inferred from years of experience and the scope of responsibility shown in the CV.",
+      "enum": ["Entry-level", "Junior", "Mid-level", "Senior", "Lead/Principal"],
+      "title": "Seniority",
+      "type": "string"
+    },
+    "skill_gaps": {
+      "description": "Skills or requirements listed in the job description that are missing or only weakly evidenced in the candidate's CV.",
+      "items": { "type": "string" },
+      "title": "Skill Gaps",
+      "type": "array"
+    }
+  },
+  "required": ["seniority", "role_type", "key_skills", "skill_gaps", "strengths_summary"]
+}
+```
+
+When `generate_structured()` calls Gemini with `response_schema=CandidateProfile`, the SDK
+attaches exactly this JSON schema to the request. Gemini uses it two ways:
+
+1. **Constrains generation** — the output is guaranteed to match this shape. `seniority` is
+   an `enum` here (from the `Literal` type), so the model literally cannot return a sixth
+   value outside the five listed.
+2. **Reads it as instructions** — each field's `description` acts as a micro-prompt for that
+   specific field, at the exact moment the model decides what to put there. `skill_gaps` as a
+   bare field name is ambiguous (gaps compared to what — general expectations? this JD?
+   nothing?). The description resolves that ambiguity locally, right next to the field, rather
+   than depending on the model correctly generalizing from the main prompt text.
+
+Practical takeaway: the main prompt (`PROMPT_TEMPLATE` in `profiler.py`) sets the overall task
+and supplies the CV/JD text; each field's `description=` gives precise, local instructions for
+that one piece of output. Deleting a description doesn't break validation (Pydantic still
+enforces types), but output quality/consistency for that field will drift, since the model is
+now guessing intent from the field name alone.
+
 ## The voice-input note — what it's actually about
 
 This was flagging a **feature deliberately excluded from scope**, and explaining why, so it

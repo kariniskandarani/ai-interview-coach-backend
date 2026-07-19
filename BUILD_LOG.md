@@ -119,3 +119,78 @@ a fully-populated, schema-validated `Greeting` object. Good example of why the s
 exists separately from the offline unit test: the offline test only proves "the code handles a
 missing key correctly," it can't catch "the model name is stale" — only a real call against
 the live API surfaces that.
+
+### `schemas.py` and `profiler.py`
+
+**Concept — what they do:** `profiler.py` is the first real "AI" step in the pipeline. Input:
+cleaned CV text + cleaned JD text from `document_processor.py`. Output: a structured
+`CandidateProfile` (seniority, target role type, relevant skills, gaps vs. the JD, a strengths
+summary) that `question_generator.py` will consume next.
+
+**Design decisions:**
+
+- `CandidateProfile` lives in a new shared `schemas.py`, not inside `profiler.py`. Not
+  premature abstraction — the architecture already calls for four LLM steps each producing
+  their own schema, and some (`question_generator.py`) will need to take a `CandidateProfile`
+  as *input*, which would create awkward imports if the schema lived inside `profiler.py`.
+  `schemas.py` = "the shapes," `llm_client.py` = "the mechanism," `profiler.py` = "this
+  specific use of the mechanism."
+- Every field on `CandidateProfile` has a `description=`. This isn't just documentation —
+  Gemini's structured-output mode sends the schema, descriptions included, to the model as
+  part of the request. The description text is genuinely part of the prompt.
+- `seniority` is a `Literal["Entry-level", "Junior", "Mid-level", "Senior", "Lead/Principal"]`
+  instead of a free `str`, because later code (question difficulty, UI) will likely branch on
+  it — a free-text field could come back as "Senior-ish" and break that logic. Constraining
+  the schema is cheaper than validating free text after the fact.
+- The profiler's `SYSTEM_INSTRUCTION` is a fixed, neutral "expert recruiter" persona — *not*
+  the user-facing interviewer persona (Friendly HR / Tough Technical Lead) planned as an
+  innovation feature. Profiling should stay objective regardless of which interviewer persona
+  gets picked later; only question-generation and evaluation should vary by persona.
+
+**Implementation strategy:** same split as `llm_client.py` — `_build_prompt()` is a pure
+function (template + string substitution), tested offline with no network call.
+`build_candidate_profile()` itself needs the real API, verified via
+`scripts/smoke_test_profiler.py` using a small realistic CV/JD pair.
+
+**Verification:** live run against a sample "mid-level backend dev" CV targeting a "Senior
+Backend Engineer" JD correctly assessed seniority as Mid-level (not Senior — an honest
+mismatch against the JD's ask), correctly identified real gaps (Kubernetes, gRPC, distributed
+systems, leadership/mentoring), and wrote an accurate, non-flattering strengths summary. Good
+sign that the system instruction is doing its job.
+
+### `question_generator.py`
+
+**Concept — what it does:** takes the `CandidateProfile` from `profiler.py` and produces an
+ordered set of interview questions — technical, behavioral, and HR — specifically calibrated
+to that candidate's seniority and, most importantly, their `skill_gaps`. This becomes the
+script `interview_engine.py` will walk through next.
+
+**Design decisions:**
+
+- Added `Question` (category, question text, `target_area`) and `QuestionSet` (an ordered
+  `list[Question]`) to `schemas.py`. The wrapper model is required, not just tidy:
+  `generate_structured()` is typed as `response_schema: type[T]` bound to `BaseModel`, and a
+  bare `list[Question]` isn't a `BaseModel` — it can't be passed directly. This also
+  demonstrates a **nested schema** (a model containing a list of another model), which
+  Gemini's structured output handles natively.
+- No `persona` parameter yet. Persona-driven question tone (Friendly HR vs. Tough Technical
+  Lead) is a Day-3 should-have, not today's must-have — adding the parameter now would be
+  speculative flexibility. When personas are built, it'll be a one-line addition (swap
+  `SYSTEM_INSTRUCTION` for a persona-specific string), so there's no real cost to waiting.
+- The question count and category mix (4-5 Technical / 2-3 Behavioral / 1 HR, ordered
+  easy→hard) is spelled out explicitly in the prompt rather than left to the model — same
+  lesson as the `Literal` seniority field: constrain what's controllable, for consistency
+  across runs.
+
+**Implementation strategy:** same split as before — `_build_prompt()` is a pure function
+(formats profile fields, joining `key_skills`/`skill_gaps` lists into readable text), tested
+offline. For live verification, refactored the smoke tests to share `scripts/sample_data.py`
+(the sample CV/JD), and `scripts/smoke_test_question_generator.py` chains the real pipeline —
+build a profile, then generate questions from it — rather than testing this module in
+isolation.
+
+**Verification:** live run produced exactly the intended mix (5 Technical, 2 Behavioral, 1 HR
+= 8 questions), and each question specifically targeted a real gap from the candidate's
+profile (gRPC vs. REST architecture, Kubernetes-based connection pooling, distributed rate
+limiting, mentoring, leading design discussions) rather than generic questions — confirms the
+personalization is actually working end to end, not just structurally valid.
