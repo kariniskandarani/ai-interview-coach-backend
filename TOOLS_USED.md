@@ -1,0 +1,58 @@
+# Tools & Services Used
+
+A quick-reference inventory of every tool/platform/service leveraged for this project, and
+what each one is for. Full reasoning for each choice lives in
+[ARCHITECTURE.md](ARCHITECTURE.md) and [BUILD_LOG.md](BUILD_LOG.md) — this file is just the
+"what did I use again?" checklist.
+
+## AI / LLM
+
+- **Google Gemini API** (`gemini-3.5-flash`) — powers every AI call in the pipeline (CV/JD
+  analysis, question generation, answer evaluation). Free tier via
+  [Google AI Studio](https://aistudio.google.com/apikey).
+- **Claude Code** — AI pair-programming assistant used to design and build the entire project
+  (architecture, backend, tests, docs, this file included).
+
+## Backend
+
+- **FastAPI** (`api/`) — thin HTTP wrapper around the business logic in `src/`, so a
+  separately-hosted frontend can call it.
+- **Pydantic** — schema definitions for every structured LLM response and API
+  request/response; also what makes Gemini's structured-output mode work.
+- **pdfplumber** — extracts text from uploaded CV PDFs.
+
+## Frontend
+
+- **Next.js / React** (generated via **Replit**'s AI Agent, per
+  [replit_frontend_prompt.md](replit_frontend_prompt.md)) — the submission frontend, calling
+  the FastAPI backend over HTTP. Downloaded from Replit (zip or GitHub push) and hosted
+  independently. *(An earlier Streamlit frontend was built and verified first, then removed
+  once this path was confirmed — see [BUILD_LOG.md](BUILD_LOG.md).)*
+
+## Database / Persistence
+
+- **Supabase** (hosted Postgres) — stores completed interview session records (`jsonb`
+  columns). Chosen over SQLite because free container hosting tends to be ephemeral — see
+  [LEARNING_NOTES.md](LEARNING_NOTES.md) for the full reasoning.
+
+## Hosting / Deployment
+
+- **Render** — hosts the FastAPI backend (`api/`). Free tier, no credit card required. Note:
+  spins down after 15 min idle; first request after that takes ~1 min to wake up — warm it up
+  before a live demo.
+- **Cloudflare Workers** (via the `@opennextjs/cloudflare` adapter — *not* the older/deprecated
+  Cloudflare Pages or `next-on-pages`) — hosts the Next.js frontend. Free tier: 100,000
+  requests/day, 10ms CPU time/request (CPU time only, not time spent waiting on the backend
+  API).
+- **Replit** — used to generate the frontend code plus BRD/PRD and presentation-prompt content.
+  Free published app lasts 30 days, plenty for the hackathon window.
+
+## Testing / Dev tooling
+
+- **pytest** — offline test suite (`tests/`) for all pure logic and mocked-external-call paths.
+- **fpdf2** — test-only dependency, generates real in-memory PDFs so `document_processor.py`
+  tests exercise real `pdfplumber` parsing instead of a mock.
+- **Playwright** (Python) — used once, ad hoc, to drive a real headless Chromium against the
+  (since-removed) Streamlit app and verify the golden path end to end. Not a standing project
+  dependency.
+- **python-dotenv** — loads `.env` (API keys/secrets) into environment variables locally.

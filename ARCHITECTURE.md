@@ -77,12 +77,25 @@ response models are more code to write, but every line is fully owned and defens
 | React + FastAPI | Most "production-looking," but real risk of not finishing in 4 days with limited frontend experience, plus maintaining two codebases and a CORS/API contract |
 | Gradio | Great for single-widget ML demos, awkward for a multi-step flow (upload → interview → report) |
 
-**Decision: Streamlit**, single app, **no separate backend service.** Business logic (document
-parsing, LLM calls, evaluation, scoring) lives in plain Python modules, fully decoupled from
-UI code — Streamlit just calls into them. This gets clean/maintainable architecture *and*
-avoids the operational overhead of running two servers. If a "real" API were ever needed
-later, these modules could be dropped into FastAPI with almost no changes — but that's not
-being built speculatively now.
+**Original decision: Streamlit**, single app, no separate backend service. Business logic
+(document parsing, LLM calls, evaluation, scoring) lives in plain Python modules, fully
+decoupled from UI code — Streamlit just calls into them. This got clean/maintainable
+architecture *and* avoided the operational overhead of running two servers, and a working
+Streamlit frontend (`frontend/`) was built and verified live against the real API.
+
+**Revised mid-hackathon: the final submission frontend is instead built by an AI app builder
+(Replit), calling the same business logic through a thin `api/` FastAPI layer.** This reverses
+the earlier plan to defer a custom frontend until after the hackathon (see the entry in
+[Deferred for later](#7-deferred-for-later-explicitly-not-now)). The decoupling that made
+"Streamlit only" clean/fast also made this pivot cheap: because business logic never depended
+on Streamlit, wrapping it in FastAPI (`api/main.py`) was additive, not a rewrite — same
+`profiler.py`/`question_generator.py`/`evaluator.py`/`interview_engine.py`/`persistence.py`
+calls, just exposed over HTTP instead of called directly from Streamlit widgets. The Streamlit
+frontend was initially kept as a fallback/reference, then removed once the Replit/Next.js path
+was confirmed as the actual submission plan — see [BUILD_LOG.md](BUILD_LOG.md) for the
+Streamlit build itself (kept as history) and its removal.
+Accepted risk: this was chosen consciously as a timeline gamble (see the FastAPI/frontend
+build conversation) in exchange for a more polished submission.
 
 ### PDF Processing
 
@@ -94,18 +107,21 @@ isn't added until a real failure is hit.
 
 ### State & Persistence
 
-- **Session state (must-have):** Streamlit's built-in `session_state` — in-memory, per-browser
-  session. CV text, JD text, question set, conversation history, evaluations, scores all live
-  here during the interview. Zero setup.
+- **Session state (must-have):** now that the frontend is a separately-hosted Next.js/React
+  app calling `api/` over HTTP, there's no shared in-process session object between requests
+  the way Streamlit's `session_state` provided for free. The API (`api/main.py`) holds active
+  interview sessions in an in-memory `dict` keyed by `session_id`, returned to the frontend on
+  `/api/upload` and used on every subsequent call. This was originally Streamlit's
+  `session_state`; see [BUILD_LOG.md](BUILD_LOG.md) for that earlier version.
 - **Persistence (should-have): Supabase (hosted Postgres).** Free tier, lets a user's report
   survive a page refresh and enables a "past interviews" history screen. Originally SQLite was
-  chosen here for zero-config simplicity, but that decision had a real flaw: Streamlit
-  Community Cloud's free containers are ephemeral, so a local SQLite file isn't reliably
-  persistent across restarts/redeploys — exactly the scenario this feature needs to survive
-  during a live demo. Supabase's hosted Postgres actually persists regardless of container
-  restarts, at the cost of a new account/project, an SDK dependency (`supabase-py`), and a
-  live network dependency for every save. Worth the tradeoff specifically because "does the
-  history feature actually work when deployed" was the whole point of building it.
+  chosen here for zero-config simplicity, but that decision had a real flaw: free container
+  hosting tends to be ephemeral, so a local SQLite file isn't reliably persistent across
+  restarts/redeploys — exactly the scenario this feature needs to survive during a live demo.
+  Supabase's hosted Postgres actually persists regardless of container restarts, at the cost
+  of a new account/project, an SDK dependency (`supabase-py`), and a live network dependency
+  for every save. Worth the tradeoff specifically because "does the history feature actually
+  work when deployed" was the whole point of building it.
 
 ### Auth
 
@@ -121,34 +137,42 @@ extracted text, which already lives in session state / Supabase.
 
 ### Deployment
 
-**Decision: Streamlit Community Cloud.** Free, deploys straight from a GitHub repo, gives a
-public shareable URL — exactly what's needed for hackathon judging. HuggingFace Spaces is
-equally free and viable but Streamlit Cloud has zero extra config since the app is already
-all-in on Streamlit.
+**Revised: Render (backend) + Cloudflare Workers (frontend), both free tier.** The original
+plan was Streamlit Community Cloud, which stopped being relevant once the frontend moved off
+Streamlit. Render hosts `api/` (FastAPI) — free, no credit card, straightforward GitHub-connected
+deploy; free-tier caveat: spins down after 15 min idle, ~1 min cold start on the next request,
+worth warming up before a live demo. The frontend (generated via Replit, see
+[replit_frontend_prompt.md](replit_frontend_prompt.md)) deploys to Cloudflare Workers via the
+`@opennextjs/cloudflare` adapter — free tier: 100,000 requests/day, 10ms CPU time/request
+(compute only, not time spent waiting on the backend API call).
 
 ### Testing
 
-**Decision: `pytest` on the pure-logic layer only** — document parsing, prompt builders,
-response-schema validation, scoring aggregation. These are pure functions with no UI
-dependency, cheap to test, and having a real (if small) test suite is a genuine signal of
-engineering maturity to judges. The Streamlit UI itself is **not** tested — low return on time
-invested.
+**Decision: `pytest` on the pure-logic layer, plus the API layer via FastAPI's `TestClient`**
+— document parsing, prompt builders, response-schema validation, scoring aggregation, and API
+routing/error-mapping (`tests/test_api.py`, pipeline functions mocked at the `api.main`
+boundary — same reasoning as mocking `evaluate_answer` in `interview_engine` tests). These are
+all fast, deterministic, no-network tests; a real (if small) test suite is a genuine signal of
+engineering maturity to judges. The Next.js frontend (built via Replit) is **not** covered by
+this repo's test suite — low return on time invested, and it's a separate codebase/deployment.
 
 ### Final stack summary
 
 | Layer | Choice |
 |---|---|
-| Language | Python |
-| Frontend + App shell | Streamlit |
+| Language | Python (backend), TypeScript (frontend) |
+| Frontend | Next.js/React, generated via Replit, calling `api/` over HTTP |
+| Backend API | FastAPI (`api/`), thin wrapper around `src/` |
 | LLM | Google Gemini 3.5 Flash (free tier) |
 | Orchestration | Plain Python + Pydantic schemas (no framework) |
 | PDF parsing | pdfplumber |
 | Retrieval | None — full context stuffing |
-| Persistence | Supabase/Postgres (should-have), session_state (must-have) |
+| Persistence | Supabase/Postgres (should-have), in-memory session dict (must-have) |
 | Auth | None |
 | File storage | None (in-memory only) |
-| Deployment | Streamlit Community Cloud |
-| Testing | pytest on logic layer |
+| Backend hosting | Render (free tier) |
+| Frontend hosting | Cloudflare Workers, `@opennextjs/cloudflare` adapter (free tier) |
+| Testing | pytest on logic + API layer |
 
 ---
 
@@ -318,10 +342,27 @@ just smarter prompts.
 Things that were considered and consciously postponed, so they don't get forgotten or
 accidentally re-scoped in later. Revisit only if there's real slack, or after the hackathon.
 
-- **FastAPI migration path.** Business logic modules (`document_processor.py`,
-  `llm_client.py`, `profiler.py`, etc.) are kept fully decoupled from the Streamlit UI on
-  purpose. If a "real" API were ever needed later, these modules could be dropped into
-  FastAPI with almost no changes. Not building this now — just keeping the door open.
+- **~~FastAPI + Next.js/React v2 (post-hackathon)~~ — superseded, see §3.** The original plan
+  here was to ship the hackathon on Streamlit and defer any custom-coded frontend rebuild
+  (FastAPI + hand-written Next.js/React) until after the deadline, to avoid the risk of
+  learning a new frontend framework from zero with ~2 days left. That got revisited: instead
+  of hand-coding Next.js/React (still deferred, unhurried, post-hackathon — see the "Timing"
+  decision in the frontend conversation), the FastAPI layer was built *now* so an AI app
+  builder (Replit) could generate the submission frontend against it immediately. The
+  decoupling work already done made the FastAPI half of this cheap; the frontend half is
+  delegated to Replit rather than hand-built under time pressure. Hand-coded Next.js/React
+  remains a genuine post-hackathon goal (learning + portfolio), just now with a working
+  FastAPI backend already sitting there ready for it.
+
+- **HR/recruiter-facing mode.** So far the product has one audience: the job seeker preparing
+  for an interview. A second, distinct use case is plausible — HR/recruiters using the app to
+  generate a personalized interview script for a real candidate (upload the candidate's CV +
+  the JD, get back tailored questions to actually ask in a real interview), without the
+  mock-interview chat/evaluation loop at all. Consciously not building this now: a hackathon
+  pitch lands harder single-audience/focused, and this would be a second UI surface built
+  under time pressure mid-pivot. Worth noting it'd be cheap when revisited — it only reuses
+  `profiler.py` + `question_generator.py` as-is; `evaluator.py`/`interview_engine.py` wouldn't
+  need to change at all.
 
 - **PyMuPDF (`fitz`) as PDF-parsing fallback.** `pdfplumber` is the primary choice, but if a
   CV's layout extracts badly, PyMuPDF is faster and more robust on tricky layouts. Don't add

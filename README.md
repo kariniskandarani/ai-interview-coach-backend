@@ -21,12 +21,14 @@
 | Layer | Choice |
 |---|---|
 | Language | Python |
-| Frontend + app | Streamlit |
+| Frontend | Next.js/React, generated via Replit, calling the FastAPI backend |
+| Backend API | FastAPI (`api/`) |
 | LLM | Google Gemini 3.5 Flash (free tier) |
 | PDF parsing | pdfplumber |
 | Structured output | Pydantic |
 | Persistence | Supabase (Postgres) |
-| Deployment | Streamlit Community Cloud |
+| Backend hosting | Render (free tier) |
+| Frontend hosting | Cloudflare Workers (OpenNext adapter) |
 
 Full reasoning behind every choice: [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -73,11 +75,33 @@ Run the tests:
 .venv\Scripts\python -m pytest
 ```
 
-Run the app *(once `app.py` exists)*:
+### Running the API locally
 
 ```bash
-.venv\Scripts\streamlit run app.py
+.venv\Scripts\uvicorn api.main:app --reload
 ```
+
+- Runs at **http://localhost:8000**.
+- `--reload` auto-restarts the server on code changes — drop it for anything production-like.
+- Interactive API docs (try out every endpoint from the browser, no `curl`/frontend needed):
+  **http://localhost:8000/docs**
+- Health check — `GET http://localhost:8000/` should return `{"status": "ok"}`.
+
+**Endpoints** (try any of these live at [localhost:8000/docs](http://localhost:8000/docs)):
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/` | Health check |
+| `POST` | `/api/upload` | Upload CV (PDF) + job description → candidate profile + question set |
+| `GET` | `/api/sessions/{session_id}` | Fetch current interview state |
+| `POST` | `/api/sessions/{session_id}/answer` | Submit an answer → evaluation + next question |
+| `GET` | `/api/sessions` | List past completed sessions |
+
+Full request/response shapes for each: [replit_frontend_prompt.md](replit_frontend_prompt.md#4-api-contract--call-this-dont-rebuild-it).
+
+The frontend lives in a separate repo/deployment (see
+[replit_frontend_prompt.md](replit_frontend_prompt.md)), generated via Replit and calling this
+API over HTTP.
 
 ## Project docs
 

@@ -354,3 +354,30 @@ dependency, transcription latency (bad if it lags mid-demo), and a new way for t
 value (it's still evaluating text either way, just via typing vs. speaking). It's a "nice
 touch," not something that makes the coaching better. Only worth touching if Days 1–3 finish
 comfortably early and Day 4 has genuine slack.
+
+## Why visiting an API endpoint in the browser can show "Method Not Allowed"
+
+Typing a URL into the browser's address bar and hitting Enter always sends an HTTP **GET**
+request — there's no way to make the address bar send anything else. But an endpoint like
+`POST /api/upload` in `api/main.py` is defined with `@app.post(...)`, meaning it only handles
+**POST** requests (and specifically expects `multipart/form-data`: a file plus a text field,
+not just a bare visit).
+
+So navigating straight to `http://localhost:8000/api/upload` sends a GET, FastAPI/Starlette
+sees the path exists but has no GET handler registered for it, and correctly responds with:
+
+```json
+{ "detail": "Method Not Allowed" }
+```
+
+— HTTP status `405`. This is standard REST behavior, not a bug: the server is saying "this
+path exists, just not for the method you used." A URL isn't just an address, it's an address
+*plus a verb* (GET, POST, PUT, DELETE, ...), and a given path can have a handler for one verb
+and nothing for another.
+
+**How to actually exercise a POST-only endpoint without building a frontend:** use FastAPI's
+free interactive docs at `http://localhost:8000/docs` — expand the endpoint, click "Try it
+out," fill in the fields (a file upload, form fields, JSON body, whatever the endpoint needs),
+and hit "Execute." That sends a real request with the correct method and content type, and
+shows the actual response — much faster than writing a `curl` command or standing up a UI
+just to check one endpoint works.
