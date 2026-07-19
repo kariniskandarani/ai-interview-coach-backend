@@ -1,6 +1,8 @@
-streamlit
 pdfplumber
 pydantic
 python-dotenv
 google-genai
 supabase
+fastapi
+uvicorn
+python-multipart
