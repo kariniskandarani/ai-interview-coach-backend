@@ -37,6 +37,23 @@ def test_starts_on_first_question():
     assert not session.finished
 
 
+def test_progress_properties(monkeypatch):
+    monkeypatch.setattr(
+        "src.interview_engine.evaluate_answer",
+        lambda **kwargs: _evaluation(follow_up_needed=False),
+    )
+    session = InterviewSession(PROFILE, TWO_QUESTIONS)
+    assert session.total_questions == 2
+    assert session.current_question_number == 1
+
+    session.submit_answer("Answer 1")
+    assert session.current_question_number == 2
+
+    session.submit_answer("Answer 2")
+    assert session.finished
+    assert session.current_question_number == 2
+
+
 def test_advances_to_next_question_when_no_followup_needed(monkeypatch):
     monkeypatch.setattr(
         "src.interview_engine.evaluate_answer",

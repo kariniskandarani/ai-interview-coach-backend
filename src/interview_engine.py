@@ -38,6 +38,15 @@ class InterviewSession:
 
         self._load_current_question()
 
+    @property
+    def total_questions(self) -> int:
+        return len(self._questions)
+
+    @property
+    def current_question_number(self) -> int:
+        """1-indexed position among the scripted questions (follow-ups don't advance this)."""
+        return min(self._index + 1, self.total_questions)
+
     def _load_current_question(self) -> None:
         if self._index >= len(self._questions):
             self.finished = True
