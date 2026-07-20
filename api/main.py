@@ -67,12 +67,12 @@ def _session_state_response(
 
 
 @app.get("/")
-async def health():
+def health():
     return {"status": "ok"}
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload(cv: UploadFile = File(...), job_description: str = Form(...)):
+def upload(cv: UploadFile = File(...), job_description: str = Form(...)):
     try:
         cv_text = extract_text_from_pdf(cv.file)
         jd_text = clean_job_description(job_description)
@@ -91,7 +91,7 @@ async def upload(cv: UploadFile = File(...), job_description: str = Form(...)):
 
 
 @app.get("/api/sessions/{session_id}", response_model=SessionStateResponse)
-async def get_session(session_id: str):
+def get_session(session_id: str):
     session = _active_sessions.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -99,7 +99,7 @@ async def get_session(session_id: str):
 
 
 @app.post("/api/sessions/{session_id}/answer", response_model=SessionStateResponse)
-async def submit_answer(session_id: str, body: AnswerRequest):
+def submit_answer(session_id: str, body: AnswerRequest):
     session = _active_sessions.get(session_id)
     profile = _profiles.get(session_id)
     if session is None or profile is None:
@@ -123,7 +123,7 @@ async def submit_answer(session_id: str, body: AnswerRequest):
 
 
 @app.get("/api/sessions", response_model=list[PastSessionSummary])
-async def get_past_sessions():
+def get_past_sessions():
     try:
         rows = list_sessions()
     except PersistenceError as exc:

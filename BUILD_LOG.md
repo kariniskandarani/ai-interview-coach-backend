@@ -376,3 +376,72 @@ nothing is lost from history, and keeping a second, unused frontend around would
 confusing dead weight. `streamlit` was also dropped from `requirements.txt`. The write-up
 above (Version 5) stays as the record of what was built and verified before the pivot; this
 note is just so the "kept as fallback" line in that section doesn't read as still true.
+
+---
+
+## Version 6 — Deployed, and a real rate-limit hit (Day 2)
+
+Backend deployed to Render (`ai-interview-coach-backend`, pushed to GitHub first, then
+connected via Render's dashboard — build command `pip install -r requirements.txt`, start
+command `uvicorn api.main:app --host 0.0.0.0 --port $PORT`, `.python-version` pinned to 3.11
+to match local dev). Verified live: health check, `/docs`, a real `/api/upload` call, and
+`/api/sessions` reading real Supabase data — all working in production, not just locally.
+
+Frontend generated via Replit from `replit_frontend_prompt.md`, with the real Render URL
+filled in as the base URL. First real end-to-end usage through the generated frontend hit a
+genuine `429` rate-limit error from Gemini.
+
+**Root cause:** free-tier `gemini-3.5-flash` allows 10 requests/minute (and 1,500/day — not
+the constraint here). A single interview turn can be 1-2 calls (upload = profile + questions
+back-to-back; an answer with a follow-up = 2 evaluate calls), so clicking through several
+questions quickly in the same minute realistically exceeds 10 RPM — this wasn't a bug, just an
+unhandled real failure mode of the free tier.
+
+**Fix:** `generate_structured()` in `llm_client.py` now retries specifically on rate-limit
+errors (detected by checking the exception message for `"429"`/`"RESOURCE_EXHAUSTED"` — the
+SDK doesn't raise a distinctly-typed exception for this, same as the earlier stale-model 404),
+with exponential backoff (2s, 4s, 8s) up to 3 retries, before finally raising `LLMError`.
+Non-rate-limit errors (bad key, schema mismatch, genuine outages) still fail immediately —
+retrying those wouldn't help and would just add latency to a real failure.
+
+**Testing:** mocks the Gemini client's `generate_content` call directly (a small `_FakeClient`/
+`_FakeModels` pair returning a queued sequence of exceptions/successes) and stubs `time.sleep`
+to a no-op — this is testing our retry control-flow, not Gemini's actual behavior, so mocking
+is correct here, same reasoning as `interview_engine`'s mocked `evaluate_answer`. Three cases:
+retries-then-succeeds, exhausts-retries-then-raises, and doesn't-retry-non-rate-limit-errors.
+All fast (no real sleeping) since `time.sleep` is stubbed.
+
+**Verification:** 31/31 offline tests passing, including the three new retry tests.
+
+### Two more fixes before the demo video: blocking event loop, and daily-quota-aware retry
+
+**`api/main.py` -- removed `async` from all five endpoints.** Every endpoint was declared
+`async def` but internally called fully synchronous, blocking code (everything in `src/` --
+none of it uses `await`). Per FastAPI's own docs, blocking code inside `async def` runs
+directly on the single event loop thread and blocks it entirely -- no other request (not even
+an OPTIONS preflight or a health check) can be served until it finishes. This was directly
+observed in production: Render logs showed successful 200s interleaved with 502 Bad Gateway
+on `/api/sessions/{id}/answer`, worsened by the new retry-backoff sleeping (added above) which
+extended how long a single request could block the loop. Fix: plain `def` instead of
+`async def` -- FastAPI then runs the function in a thread pool automatically, so blocking work
+no longer freezes the whole server. Confirmed via FastAPI's own async docs page before
+changing anything, and by checking the codebase: nothing outside `llm_client.py` uses `await`,
+so this was a pure mislabeling, not a partial-async situation needing a bigger rework.
+
+**`llm_client.py` -- the retry logic wasn't suited to what a real quota-exceeded error
+actually looks like.** Live testing produced a real `429` with
+`quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'`, `quotaValue: '20'` --
+confirmed via Google AI Studio's own rate-limit dashboard (5 RPM / 20 RPD per model on this
+account, `gemini-3.5-flash` already over at 26/20). Two problems with the existing retry:
+(1) the backoff maxes out at 14s total, but per-minute exhaustion needs up to ~50-60s to
+clear (Google's own error said "retry in 50.5s") -- not enough to reliably help; (2) per-day
+exhaustion cannot clear on *any* retry timescale short of waiting for the daily reset --
+retrying it is pure wasted blocking time that fails anyway, every time. Fix: added
+`_is_daily_quota_error()` (checks for `"PerDay"` in the exception message) and skip retrying
+entirely for that case, failing immediately with a clear message instead. Also switched
+`MODEL_NAME` to `gemini-2.5-flash`, since the dashboard showed that model's quota was still
+essentially untouched (1/20) -- an immediate, free, zero-code-risk way to keep testing today
+while the daily quota for `3.5-flash` resets.
+
+**Verification:** 32/32 offline tests passing, including a new test asserting daily-quota
+errors fail immediately without calling `time.sleep` at all.
