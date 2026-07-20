@@ -20,6 +20,7 @@ from src.document_processor import (
     extract_text_from_pdf,
 )
 from src.interview_engine import InterviewEngineError, InterviewSession
+from src import llm_client
 from src.llm_client import LLMError
 from src.persistence import PersistenceError, list_sessions, save_session
 from src.profiler import build_candidate_profile
@@ -68,7 +69,7 @@ def _session_state_response(
 
 @app.get("/")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "gemini_calls_since_start": llm_client.call_count}
 
 
 @app.post("/api/upload", response_model=UploadResponse)

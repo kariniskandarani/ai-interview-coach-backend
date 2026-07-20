@@ -42,16 +42,21 @@ trigger a second (a follow-up) per question:
 | CV/JD analysis (`build_candidate_profile`) | 1 |
 | Question generation (`generate_questions`) | 1 (all 8 questions in a single call) |
 | Answer evaluation (`evaluate_answer`) | 1 per answer, up to 2 per question if a follow-up triggers (capped at 1 follow-up/question) |
-| Final report (`report_builder`, Day 3) | 1 |
+
+There is no final-report call yet (`report_builder` isn't built) — don't count one.
 
 With 8 questions per interview, one full session costs:
 
-- **Best case** (no follow-ups needed): `1 + 1 + 8 + 1 = 11 calls`
-- **Worst case** (every question triggers its one allowed follow-up): `1 + 1 + 16 + 1 = 19 calls`
+- **Best case** (no follow-ups needed): `1 + 1 + 8 = 10 calls`
+- **Worst case** (every question triggers its one allowed follow-up): `1 + 1 + 16 = 18 calls`
 
 The follow-up cap is what bounds the worst case — without it, a strict evaluator could chain
-follow-ups indefinitely. Well within Gemini's free-tier rate limits for a hackathon demo, but
-worth knowing for reasoning about live-demo latency (each call adds a few seconds).
+follow-ups indefinitely. This matters more than it sounds: the free tier's real limit turned
+out to be a stingy 5 requests/minute and 20 requests/**day** per model (not the far higher
+numbers third-party sources report) — a single session can burn most or all of a day's quota.
+See [LEARNING_NOTES.md](LEARNING_NOTES.md) and `BUILD_LOG.md`'s Version 6 entry for the full
+story. `GET /` returns a live `gemini_calls_since_start` counter (resets on process restart)
+if you want to track real usage rather than just the theoretical math above.
 
 ## Setup
 

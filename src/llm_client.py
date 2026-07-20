@@ -1,5 +1,6 @@
 """Thin wrapper around the Gemini API. Every AI call in the app goes through here."""
 
+import logging
 import os
 import time
 from typing import TypeVar
@@ -11,11 +12,18 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+logger = logging.getLogger("llm_client")
+
 MODEL_NAME = "gemini-2.5-flash"
 MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_BACKOFF_SECONDS = 2
 
 T = TypeVar("T", bound=BaseModel)
+
+# In-memory call counter. Resets on process restart -- same tradeoff as the
+# rest of this app's in-memory state; this is for at-a-glance visibility
+# during testing/demos, not a durable usage record.
+call_count = 0
 
 
 class LLMError(Exception):
@@ -56,9 +64,15 @@ def generate_structured(
     with a clear message instead of wasting time retrying something that
     will keep failing until the daily window resets.
     """
+    global call_count
     client = _get_client()
+    schema_name = response_schema.__name__
 
     for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        call_count += 1
+        logger.info(
+            "Gemini call #%d: schema=%s attempt=%d", call_count, schema_name, attempt + 1
+        )
         try:
             response = client.models.generate_content(
                 model=MODEL_NAME,
@@ -72,14 +86,17 @@ def generate_structured(
             break
         except Exception as exc:
             if _is_daily_quota_error(exc):
+                logger.warning("Gemini call #%d: daily quota exhausted", call_count)
                 raise LLMError(
                     "Gemini's free-tier daily quota for this model is exhausted. "
                     "This won't clear by retrying -- try again after the daily "
                     "reset, switch models, or enable billing."
                 ) from exc
             if _is_rate_limit_error(exc) and attempt < MAX_RATE_LIMIT_RETRIES:
+                logger.warning("Gemini call #%d: rate limited, retrying", call_count)
                 time.sleep(RATE_LIMIT_BACKOFF_SECONDS * (2**attempt))
                 continue
+            logger.error("Gemini call #%d: failed: %s", call_count, exc)
             raise LLMError(f"Gemini API call failed: {exc}") from exc
 
     if response.parsed is None:
