@@ -36,8 +36,13 @@ what each one is for. Full reasoning for each choice lives in
 ## Database / Persistence
 
 - **Supabase** (hosted Postgres) — stores completed interview session records (`jsonb`
-  columns). Chosen over SQLite because free container hosting tends to be ephemeral — see
-  [LEARNING_NOTES.md](LEARNING_NOTES.md) for the full reasoning.
+  columns), now scoped per-user via `user_id`. Chosen over SQLite because free container
+  hosting tends to be ephemeral — see [LEARNING_NOTES.md](LEARNING_NOTES.md) for the full
+  reasoning.
+- **Supabase Auth** — email/password login, used directly from the frontend
+  (`@supabase/supabase-js`) with no custom backend auth code. The backend only verifies
+  tokens Supabase already issued, via `client.auth.get_user(token)`. Free, same project as
+  persistence, so no new service. A "Try Me" guest path bypasses it entirely.
 
 ## Hosting / Deployment
 

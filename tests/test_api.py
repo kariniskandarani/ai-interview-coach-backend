@@ -83,14 +83,22 @@ def test_upload_llm_error(monkeypatch):
     assert "api down" in response.json()["detail"]
 
 
-def _create_session(monkeypatch) -> str:
+def _create_session(monkeypatch, authenticated: bool = False) -> str:
     monkeypatch.setattr("api.main.extract_text_from_pdf", lambda file: "cv text")
     monkeypatch.setattr("api.main.clean_job_description", lambda text: text)
     monkeypatch.setattr("api.main.build_candidate_profile", lambda **kwargs: PROFILE)
     monkeypatch.setattr("api.main.generate_questions", lambda profile: QUESTIONS)
 
+    headers = {}
+    if authenticated:
+        monkeypatch.setattr("api.main.get_user_id_from_token", lambda token: "user-123")
+        headers = {"Authorization": "Bearer faketoken"}
+
     response = client.post(
-        "/api/upload", files=_upload_file(), data={"job_description": "some JD"}
+        "/api/upload",
+        files=_upload_file(),
+        data={"job_description": "some JD"},
+        headers=headers,
     )
     return response.json()["session_id"]
 
@@ -130,7 +138,7 @@ def test_submit_answer_advances_session(monkeypatch):
 
 
 def test_submit_answer_after_finished_returns_400(monkeypatch):
-    session_id = _create_session(monkeypatch)
+    session_id = _create_session(monkeypatch, authenticated=True)
     monkeypatch.setattr(
         "src.interview_engine.evaluate_answer",
         lambda **kwargs: Evaluation(
@@ -142,7 +150,9 @@ def test_submit_answer_after_finished_returns_400(monkeypatch):
             follow_up_question=None,
         ),
     )
-    monkeypatch.setattr("api.main.save_session", lambda profile, transcript: "saved-id")
+    monkeypatch.setattr(
+        "api.main.save_session", lambda profile, transcript, user_id: "saved-id"
+    )
 
     client.post(f"/api/sessions/{session_id}/answer", json={"answer": "answer 1"})
     finish_response = client.post(
@@ -181,7 +191,6 @@ def test_get_report_success(monkeypatch):
             follow_up_question=None,
         ),
     )
-    monkeypatch.setattr("api.main.save_session", lambda profile, transcript: "saved-id")
     client.post(f"/api/sessions/{session_id}/answer", json={"answer": "answer 1"})
     client.post(f"/api/sessions/{session_id}/answer", json={"answer": "answer 2"})
 
@@ -207,14 +216,55 @@ def test_get_report_success(monkeypatch):
 
 
 def test_get_past_sessions(monkeypatch):
+    monkeypatch.setattr("api.main.get_user_id_from_token", lambda token: "user-123")
     monkeypatch.setattr(
         "api.main.list_sessions",
-        lambda: [{"id": "abc", "created_at": "2026-07-19T00:00:00", "role_type": "Backend Engineer"}],
+        lambda user_id: [
+            {"id": "abc", "created_at": "2026-07-19T00:00:00", "role_type": "Backend Engineer"}
+        ],
     )
 
-    response = client.get("/api/sessions")
+    response = client.get("/api/sessions", headers={"Authorization": "Bearer faketoken"})
 
     assert response.status_code == 200
     assert response.json() == [
         {"id": "abc", "created_at": "2026-07-19T00:00:00", "role_type": "Backend Engineer"}
     ]
+
+
+def test_get_past_sessions_without_auth_returns_401():
+    response = client.get("/api/sessions")
+    assert response.status_code == 401
+
+
+def test_upload_with_invalid_token_returns_401(monkeypatch):
+    from src.auth import AuthError
+
+    def raise_auth_error(token):
+        raise AuthError("bad token")
+
+    monkeypatch.setattr("api.main.get_user_id_from_token", raise_auth_error)
+
+    response = client.post(
+        "/api/upload",
+        files=_upload_file(),
+        data={"job_description": "some JD"},
+        headers={"Authorization": "Bearer garbage"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_upload_without_auth_header_succeeds_as_guest(monkeypatch):
+    """No Authorization header at all -- a 'Try Me' guest request -- is not an auth
+    error, it's just an anonymous session."""
+    monkeypatch.setattr("api.main.extract_text_from_pdf", lambda file: "cv text")
+    monkeypatch.setattr("api.main.clean_job_description", lambda text: text)
+    monkeypatch.setattr("api.main.build_candidate_profile", lambda **kwargs: PROFILE)
+    monkeypatch.setattr("api.main.generate_questions", lambda profile: QUESTIONS)
+
+    response = client.post(
+        "/api/upload", files=_upload_file(), data={"job_description": "some JD"}
+    )
+
+    assert response.status_code == 200

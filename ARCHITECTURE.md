@@ -138,9 +138,28 @@ isn't added until a real failure is hit.
 
 ### Auth
 
-**Decision: none.** No login, no user accounts. For a hackathon demo this is pure scope creep
-— the time it costs (OAuth setup, session security, edge cases) has near-zero payoff versus a
-working interview flow. Flagged explicitly so it doesn't get built "for completeness."
+**Original decision: none.** No login, no user accounts. For a hackathon demo this looked like
+pure scope creep versus a working interview flow.
+
+**Revised: Supabase Auth**, once "past interview history" became a real, requested feature —
+without auth, `GET /api/sessions` had no way to distinguish whose sessions were whose, so
+every user would see everyone's history mixed together. Supabase Auth was the low-cost choice
+specifically because the app already runs on Supabase for persistence — no new service, no
+custom password/session handling, just email/password sign-up/login via
+`@supabase/supabase-js` directly from the frontend (auth doesn't route through the FastAPI
+backend at all). The backend's only job is verifying the token Supabase already issued, via
+`client.auth.get_user(token)` (Supabase's documented recommendation over decoding the JWT
+locally — avoids needing to know this project's specific signing algorithm).
+
+A **"Try Me" guest path stays available**, deliberately: skips login entirely, goes straight
+into an interview, and that interview is never saved to history. No login = no persistence is
+the whole scope boundary — simpler than trying to migrate an anonymous session into an account
+later. `POST /api/upload` and `GET /api/sessions` are the only two endpoints that care about
+the auth token; the rest of the flow (`/answer`, `/report`, fetching a specific known
+`session_id`) works identically regardless of login state — worth noting as a real, known
+scope boundary, not an oversight: a session_id is an unguessable UUID and functions like a
+capability token for accessing that one session, but isn't independently access-controlled
+beyond that. Full reasoning and live verification: `BUILD_LOG.md`.
 
 ### File Storage
 
@@ -181,7 +200,7 @@ this repo's test suite — low return on time invested, and it's a separate code
 | PDF parsing | pdfplumber |
 | Retrieval | None — full context stuffing |
 | Persistence | Supabase/Postgres (should-have), in-memory session dict (must-have) |
-| Auth | None |
+| Auth | Supabase Auth (email/password), optional -- "Try Me" guest path skips it |
 | File storage | None (in-memory only) |
 | Backend hosting | Render (free tier) |
 | Frontend hosting | Cloudflare Workers, `@opennextjs/cloudflare` adapter (free tier) |

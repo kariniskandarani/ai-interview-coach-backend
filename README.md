@@ -29,6 +29,7 @@ Replit.
 | PDF parsing | pdfplumber |
 | Structured output | Pydantic |
 | Persistence | Supabase (Postgres) |
+| Auth | Supabase Auth (email/password), optional -- "Try Me" guest path skips it |
 | Backend hosting | Render (free tier) |
 | Frontend hosting | Cloudflare Workers (OpenNext adapter) |
 
@@ -106,11 +107,11 @@ Run the tests:
 | Method | Path | What it does |
 |---|---|---|
 | `GET` | `/` | Health check |
-| `POST` | `/api/upload` | Upload CV (PDF) + job description → candidate profile + question set |
+| `POST` | `/api/upload` | Upload CV (PDF) + job description → candidate profile + question set. Optional `Authorization: Bearer <token>` — if present, the resulting interview gets saved to that user's history on completion |
 | `GET` | `/api/sessions/{session_id}` | Fetch current interview state |
 | `POST` | `/api/sessions/{session_id}/answer` | Submit an answer → evaluation + next question |
 | `GET` | `/api/sessions/{session_id}/report` | Generate the final readiness report (opt-in, only once the interview is finished) |
-| `GET` | `/api/sessions` | List past completed sessions |
+| `GET` | `/api/sessions` | List the logged-in user's past sessions. **Requires** `Authorization: Bearer <token>` — `401` without one |
 
 Full request/response shapes for each: [replit_frontend_prompt.md](replit_frontend_prompt.md#4-api-contract--call-this-dont-rebuild-it).
 

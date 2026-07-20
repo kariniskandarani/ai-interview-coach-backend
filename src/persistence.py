@@ -40,8 +40,10 @@ def _transcript_to_json(transcript: list[TranscriptEntry]) -> list[dict]:
     ]
 
 
-def save_session(profile: CandidateProfile, transcript: list[TranscriptEntry]) -> str:
-    """Save a (possibly in-progress) interview session and return its id."""
+def save_session(profile: CandidateProfile, transcript: list[TranscriptEntry], user_id: str) -> str:
+    """Save a (possibly in-progress) interview session for a logged-in user and return
+    its id. Only ever called for authenticated requests -- guest ("Try Me") sessions
+    are never saved at all, so user_id is required here, not optional."""
     client = _get_client()
     try:
         response = (
@@ -51,6 +53,7 @@ def save_session(profile: CandidateProfile, transcript: list[TranscriptEntry]) -
                     "role_type": profile.role_type,
                     "profile": profile.model_dump(),
                     "transcript": _transcript_to_json(transcript),
+                    "user_id": user_id,
                 }
             )
             .execute()
@@ -61,13 +64,16 @@ def save_session(profile: CandidateProfile, transcript: list[TranscriptEntry]) -
     return response.data[0]["id"]
 
 
-def list_sessions() -> list[dict]:
-    """Return past interview sessions (id, created_at, role_type), most recent first."""
+def list_sessions(user_id: str) -> list[dict]:
+    """Return a specific user's past interview sessions (id, created_at, role_type),
+    most recent first. Requires a user_id -- there is no "list everyone's sessions"
+    mode; history is always scoped to the logged-in user."""
     client = _get_client()
     try:
         response = (
             client.table(TABLE_NAME)
             .select("id, created_at, role_type")
+            .eq("user_id", user_id)
             .order("created_at", desc=True)
             .execute()
         )

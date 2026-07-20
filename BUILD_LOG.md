@@ -576,3 +576,99 @@ The original `replit_frontend_prompt.md` explicitly told Replit's Agent *not* to
 report feature, since the endpoint didn't exist yet at the time. Wrote a new
 `replit_report_feature_prompt.md` for this specific addition, rather than editing the
 already-used original prompt (which wouldn't retroactively change what was already built).
+
+---
+
+## Version 9 — Authentication (Supabase Auth)
+
+Reversed the Day-1 "no auth" decision once "past interview history" became a real feature:
+without knowing whose session was whose, `GET /api/sessions` had no way to scope results, so
+every user would see everyone's history mixed together.
+
+### Why Supabase Auth, not custom auth
+
+The app already runs on Supabase for persistence -- Supabase Auth is part of the same
+platform, free, and gives real email/password authentication without building password
+hashing, session tokens, or reset flows. Auth itself doesn't route through the FastAPI backend
+at all -- the frontend talks to Supabase directly via `@supabase/supabase-js`; the backend's
+only job is verifying a token Supabase already issued.
+
+### `src/auth.py` (new)
+
+**Verifies tokens against Supabase's own Auth server (`client.auth.get_user(token)`), not by
+decoding the JWT locally.** Checked Supabase's own docs before implementing rather than
+assuming: their current guidance is that HS256 shared-secret local verification has "significant
+security vulnerabilities" if done casually, and recommends either JWKS-based asymmetric
+verification or calling their Auth server directly. Chose the latter -- simpler to get
+correct, reuses the `supabase-py` dependency already in the project (no new package, no new
+env var, since it uses the same `SUPABASE_URL`/`SUPABASE_SECRET_KEY` already configured for
+persistence), at the cost of one extra network call per authenticated request.
+
+`get_user_id_from_token(authorization_header)`: returns `None` for no header at all (an
+anonymous/"Try Me" request -- not an error), raises `AuthError` for a header that's present
+but malformed or rejected by Supabase (a real problem worth surfacing, not silently treated as
+anonymous).
+
+### Scope boundary: "Try Me" guests get no history, period
+
+No login = no persistence is the whole design. Guest interviews are simply never saved --
+`api/main.py` only calls `save_session()` when a `user_id` was captured at upload time. This
+was a deliberate simplification over the alternative (letting a guest interview later be
+"claimed" by an account after signing up), which would need session-migration logic not worth
+building for a hackathon-scale app.
+
+### `api/main.py` changes
+
+- `POST /api/upload` now accepts an optional `Authorization` header; resolves it to a
+  `user_id` (or `None` for guests) and remembers it per-session in a new
+  `_session_user_ids` dict, alongside the existing `_active_sessions`/`_profiles`.
+- `POST /api/sessions/{id}/answer` only calls `save_session()` on completion if that session
+  has a `user_id` -- guest sessions finish normally but are never persisted.
+- `GET /api/sessions` now **requires** a valid `Authorization` header -- `401` without one,
+  since "whose history" is meaningless without a logged-in user.
+- `GET /api/sessions/{id}`, `/answer`, and `/report` remain unauthenticated by design -- a
+  `session_id` is an unguessable UUID that functions like a capability token for that one
+  session. Noted explicitly as a real, known scope boundary (not independently
+  access-controlled beyond the UUID itself), not an oversight.
+
+### `persistence.py` changes
+
+`save_session()` now requires `user_id` (only ever called when one exists, per the scope
+boundary above). `list_sessions()` now requires `user_id` and filters with `.eq("user_id",
+user_id)` -- there's no "list everyone's sessions" mode anymore.
+
+### `sql/002_add_user_id.sql` (new)
+
+Adds a nullable `user_id uuid references auth.users(id)` column + an index to
+`interview_sessions`. Nullable specifically to avoid needing to backfill the handful of rows
+saved before auth existed, not because new rows are ever expected to lack one.
+
+### Testing
+
+`tests/test_auth.py`: offline, mocks `_get_auth_client()` the same way `persistence.py`'s
+client gets mocked elsewhere -- valid token, rejected token, malformed header, no header,
+missing credentials. `tests/test_api.py`: new cases for 401-without-auth on
+`/api/sessions`, 401 on an invalid token at upload, and confirming a header-less upload still
+succeeds as a guest. Updated `_create_session()` test helper to optionally simulate an
+authenticated request.
+
+### Verification -- live, in two stages
+
+1. `scripts/smoke_test_auth.py`: created a real test user via Supabase's admin API, signed in
+   to get a real access token, confirmed `get_user_id_from_token()` correctly resolves it to
+   the right user id, correctly returns `None` for no header, and correctly raises `AuthError`
+   for a garbage token (real error: `"invalid JWT: unable to parse or verify signature..."`).
+2. `scripts/smoke_test_auth_persistence.py`: full pipeline -- signed in as the real test user,
+   ran a live interview, saved it via `save_session(profile, transcript, user_id)`, confirmed
+   `list_sessions(user_id)` returns it, and explicitly confirmed a **different** (fake)
+   `user_id` sees zero rows and does *not* see the saved session -- real evidence against
+   cross-user leakage, not just "it didn't error."
+
+Both passed cleanly. 48/48 offline tests passing throughout.
+
+### Frontend follow-up
+
+`replit_auth_prompt.md` (new): login/signup UI, the "Try Me" guest path, and exactly which two
+endpoints need the `Authorization` header attached (`/api/upload` and `/api/sessions`) and
+which don't. Includes the real Supabase project URL and the publishable (safe-for-frontend)
+API key.

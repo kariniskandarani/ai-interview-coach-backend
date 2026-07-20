@@ -4,7 +4,7 @@ instead of it being reimplemented."""
 
 import uuid
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.schemas import (
@@ -14,6 +14,7 @@ from api.schemas import (
     TranscriptEntryOut,
     UploadResponse,
 )
+from src.auth import AuthError, get_user_id_from_token
 from src.document_processor import (
     DocumentProcessingError,
     clean_job_description,
@@ -43,6 +44,15 @@ app.add_middleware(
 # Streamlit version.
 _active_sessions: dict[str, InterviewSession] = {}
 _profiles: dict[str, CandidateProfile] = {}
+# None for a guest ("Try Me") session -- those are never saved to history at all.
+_session_user_ids: dict[str, str | None] = {}
+
+
+def _get_user_id(authorization: str | None) -> str | None:
+    try:
+        return get_user_id_from_token(authorization)
+    except AuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 def _session_state_response(
@@ -74,7 +84,17 @@ def health():
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-def upload(cv: UploadFile = File(...), job_description: str = Form(...)):
+def upload(
+    cv: UploadFile = File(...),
+    job_description: str = Form(...),
+    authorization: str | None = Header(default=None),
+):
+    # Optional: a logged-in user gets their finished session saved to history; a
+    # guest ("Try Me", no Authorization header) does not. An invalid/expired token
+    # (as opposed to no token) still raises 401 -- that's a real auth error to
+    # surface, not silently treated as a guest.
+    user_id = _get_user_id(authorization)
+
     try:
         cv_text = extract_text_from_pdf(cv.file)
         jd_text = clean_job_description(job_description)
@@ -88,6 +108,7 @@ def upload(cv: UploadFile = File(...), job_description: str = Form(...)):
     session_id = str(uuid.uuid4())
     _active_sessions[session_id] = InterviewSession(profile, question_set)
     _profiles[session_id] = profile
+    _session_user_ids[session_id] = user_id
 
     return UploadResponse(session_id=session_id, profile=profile, questions=question_set.questions)
 
@@ -115,9 +136,10 @@ def submit_answer(session_id: str, body: AnswerRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     saved_session_id = None
-    if session.finished:
+    user_id = _session_user_ids.get(session_id)
+    if session.finished and user_id is not None:
         try:
-            saved_session_id = save_session(profile, session.transcript)
+            saved_session_id = save_session(profile, session.transcript, user_id)
         except PersistenceError:
             saved_session_id = None  # non-fatal -- user still sees their results
 
@@ -140,9 +162,15 @@ def get_report(session_id: str):
 
 
 @app.get("/api/sessions", response_model=list[PastSessionSummary])
-def get_past_sessions():
+def get_past_sessions(authorization: str | None = Header(default=None)):
+    user_id = _get_user_id(authorization)
+    if user_id is None:
+        raise HTTPException(
+            status_code=401, detail="Log in to view your interview history."
+        )
+
     try:
-        rows = list_sessions()
+        rows = list_sessions(user_id)
     except PersistenceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return [
