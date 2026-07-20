@@ -114,9 +114,12 @@ interview — with real, specific feedback after every answer.
 
 ## 4. API contract — call this, don't rebuild it
 
-Base URL: `{{BACKEND_URL}}` — replace with wherever the FastAPI backend is deployed (e.g. a
-Replit deployment URL or another host). Confirm it's reachable by hitting `GET {{BACKEND_URL}}/`
-which returns `{"status": "ok"}`.
+Base URL: `https://ai-interview-coach-backend-g522.onrender.com` — already deployed and live.
+Confirm it's reachable by hitting `GET https://ai-interview-coach-backend-g522.onrender.com/`
+which returns `{"status": "ok"}`. Note: this is Render's free tier, which spins down after 15
+minutes of inactivity — the very first request after idle time can take up to ~1 minute to
+respond while it wakes back up. Handle that gracefully (a loading state that doesn't look
+broken during a slow first request), don't assume every request is fast.
 
 All requests/responses are JSON except `/api/upload`, which is `multipart/form-data`.
 
