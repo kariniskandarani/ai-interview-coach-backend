@@ -157,6 +157,55 @@ def test_submit_answer_after_finished_returns_400(monkeypatch):
     assert past_finish_response.status_code == 400
 
 
+def test_get_report_not_found():
+    response = client.get("/api/sessions/does-not-exist/report")
+    assert response.status_code == 404
+
+
+def test_get_report_before_finished_returns_400(monkeypatch):
+    session_id = _create_session(monkeypatch)
+    response = client.get(f"/api/sessions/{session_id}/report")
+    assert response.status_code == 400
+
+
+def test_get_report_success(monkeypatch):
+    session_id = _create_session(monkeypatch)
+    monkeypatch.setattr(
+        "src.interview_engine.evaluate_answer",
+        lambda **kwargs: Evaluation(
+            score=8,
+            star_feedback=None,
+            clarity_feedback="Clear.",
+            relevance_feedback="Relevant.",
+            follow_up_needed=False,
+            follow_up_question=None,
+        ),
+    )
+    monkeypatch.setattr("api.main.save_session", lambda profile, transcript: "saved-id")
+    client.post(f"/api/sessions/{session_id}/answer", json={"answer": "answer 1"})
+    client.post(f"/api/sessions/{session_id}/answer", json={"answer": "answer 2"})
+
+    from src.schemas import InterviewReport
+
+    monkeypatch.setattr(
+        "api.main.build_report",
+        lambda profile, transcript: InterviewReport(
+            readiness_score=8,
+            overall_summary="Solid performance overall.",
+            strengths=["Clear communication"],
+            weaknesses=["Could go deeper on distributed systems"],
+            study_plan=["Review Kubernetes basics"],
+        ),
+    )
+
+    response = client.get(f"/api/sessions/{session_id}/report")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["readiness_score"] == 8
+    assert body["strengths"] == ["Clear communication"]
+
+
 def test_get_past_sessions(monkeypatch):
     monkeypatch.setattr(
         "api.main.list_sessions",

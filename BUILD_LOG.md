@@ -519,3 +519,60 @@ observable number from actual server logs/the health endpoint instead.
 **Verification:** confirmed live on the deployed Render instance — `GET /` returned
 `{"status": "ok", "llm_calls_since_start": 0}` immediately after a fresh deploy, confirming the
 counter initializes correctly and the endpoint change is live.
+
+---
+
+## Version 8 — `report_builder.py`, the final piece of the core pipeline
+
+The last of the four planned LLM call types (profile, questions, evaluate, report) — closes
+out the "innovation feature" from the architecture doc: CV–JD fit + a personalized study plan.
+
+### Design decisions
+
+- **`readiness_score` is computed in Python, not asked of the LLM.** Every `Evaluation` in the
+  transcript already has a validated 1-10 score. Averaging them is exact; asking the LLM to
+  also invent a holistic score risked it being inconsistent with the per-answer scores it
+  already gave. Same "let deterministic code do arithmetic, let the LLM do qualitative
+  synthesis" principle used everywhere else in this project. Split into two schemas:
+  `ReportNarrative` (what the LLM generates — summary, strengths, weaknesses, study plan) and
+  `InterviewReport` (the full public shape, combining the computed score with the LLM's
+  narrative) in `schemas.py`.
+- **`GET /api/sessions/{id}/report` is a separate, opt-in endpoint — not automatic when the
+  interview finishes.** After a whole session's worth of quota pain, I didn't want every
+  completed interview to silently cost one more LLM call by default. The frontend can show its
+  own lightweight summary from transcript data it already has, and only hit this endpoint if
+  the user actually wants the deeper AI-written report.
+- **Scoped to in-memory, currently-finished sessions only.** Generating a report for a *past*
+  session loaded from Supabase history isn't supported — that would need reconstructing report
+  generation from stored data, a bigger feature not being built speculatively right now.
+
+### Implementation
+
+`_build_transcript_text()` formats the full Q&A + scores into readable prompt text;
+`_compute_readiness_score()` is the pure averaging function; `_build_prompt()` combines both
+with the profile's skill gaps. All three are pure functions, tested offline with no network
+call, same pattern as every other module.
+
+`api/main.py`: new `GET /api/sessions/{session_id}/report` — 404 if the session doesn't exist,
+400 if it exists but isn't finished yet, 502 if the LLM call fails, 200 with the full
+`InterviewReport` otherwise.
+
+**Testing:** `tests/test_report_builder.py` covers score averaging/rounding and prompt
+formatting offline. `tests/test_api.py` adds three cases for the new endpoint (not found,
+not-finished-yet, success — with `build_report` mocked, same reasoning as every other
+API-layer test: verifying routing/status codes, not LLM behavior).
+
+**Verification:** `scripts/smoke_test_report_builder.py` runs the full live pipeline — profile,
+questions, a 2-question interview (one strong answer, three vague ones across the follow-ups
+triggered), then the report — against the real OpenRouter API. Result: `readiness_score`
+computed as 2/10, correctly reflecting the mostly-vague answers; the summary, strengths, and
+weaknesses were specific and honest (not generic); and the study plan tied together both the
+in-interview weaknesses *and* the original profile's skill gaps (Kubernetes, gRPC, AWS,
+distributed systems) — the exact behavior the innovation feature was designed for.
+
+### Frontend follow-up
+
+The original `replit_frontend_prompt.md` explicitly told Replit's Agent *not* to build a
+report feature, since the endpoint didn't exist yet at the time. Wrote a new
+`replit_report_feature_prompt.md` for this specific addition, rather than editing the
+already-used original prompt (which wouldn't retroactively change what was already built).

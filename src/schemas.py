@@ -73,3 +73,40 @@ class Evaluation(BaseModel):
         description="A natural, specific follow-up question probing deeper into a weak or "
         "vague part of the answer. Null if follow_up_needed is False.",
     )
+
+
+class ReportNarrative(BaseModel):
+    """LLM-generated qualitative content for the final report. The numeric
+    readiness_score is computed separately in Python from the transcript's actual
+    per-answer scores, not asked of the LLM -- see report_builder.py."""
+
+    overall_summary: str = Field(
+        description="A 2-3 sentence honest summary of how the candidate performed overall "
+        "in this mock interview."
+    )
+    strengths: list[str] = Field(
+        description="2-4 specific strengths demonstrated during the interview, pointing to "
+        "specific answers rather than generic praise."
+    )
+    weaknesses: list[str] = Field(
+        description="2-4 specific areas where the candidate's answers were weak, vague, or "
+        "incomplete, pointing to specific answers rather than generic criticism."
+    )
+    study_plan: list[str] = Field(
+        description="3-5 concrete, actionable things the candidate should study or practice "
+        "before the real interview, informed by both their answer weaknesses and their "
+        "profile's skill gaps relative to the job description."
+    )
+
+
+class InterviewReport(BaseModel):
+    """The full final report: a deterministically computed readiness_score combined
+    with the LLM-generated qualitative content from ReportNarrative."""
+
+    readiness_score: int = Field(
+        ge=1, le=10, description="Overall readiness score, the average of all per-answer scores."
+    )
+    overall_summary: str
+    strengths: list[str]
+    weaknesses: list[str]
+    study_plan: list[str]

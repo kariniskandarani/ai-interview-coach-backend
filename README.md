@@ -3,7 +3,9 @@
 > Upload your CV and a job description, and get a personalized mock interview with
 > real-time feedback and a final readiness report — built for [hackathon name] in 4 days.
 
-**Status:** 🚧 In progress (Day 1 — document processing complete)
+**Status:** ✅ Core AI pipeline complete and live-verified (profile → questions → interview
+loop with follow-ups → final report). Backend deployed on Render; frontend generated via
+Replit.
 
 ---
 
@@ -42,13 +44,17 @@ trigger a second (a follow-up) per question:
 | CV/JD analysis (`build_candidate_profile`) | 1 |
 | Question generation (`generate_questions`) | 1 (all 8 questions in a single call) |
 | Answer evaluation (`evaluate_answer`) | 1 per answer, up to 2 per question if a follow-up triggers (capped at 1 follow-up/question) |
+| Final report (`build_report`, opt-in) | 1, only if `GET /api/sessions/{id}/report` is actually called |
 
-There is no final-report call yet (`report_builder` isn't built) — don't count one.
+The report call is deliberately **not automatic** on interview completion — it's a separate,
+opt-in endpoint the frontend calls only if the user wants the full AI-written report, so
+finishing an interview doesn't always cost an extra call.
 
 With 8 questions per interview, one full session costs:
 
-- **Best case** (no follow-ups needed): `1 + 1 + 8 = 10 calls`
+- **Best case** (no follow-ups needed): `1 + 1 + 8 = 10 calls` (11 if the report is requested)
 - **Worst case** (every question triggers its one allowed follow-up): `1 + 1 + 16 = 18 calls`
+  (19 if the report is requested)
 
 The follow-up cap is what bounds the worst case — without it, a strict evaluator could chain
 follow-ups indefinitely. This project originally ran on Gemini, whose free tier turned out to
@@ -103,6 +109,7 @@ Run the tests:
 | `POST` | `/api/upload` | Upload CV (PDF) + job description → candidate profile + question set |
 | `GET` | `/api/sessions/{session_id}` | Fetch current interview state |
 | `POST` | `/api/sessions/{session_id}/answer` | Submit an answer → evaluation + next question |
+| `GET` | `/api/sessions/{session_id}/report` | Generate the final readiness report (opt-in, only once the interview is finished) |
 | `GET` | `/api/sessions` | List past completed sessions |
 
 Full request/response shapes for each: [replit_frontend_prompt.md](replit_frontend_prompt.md#4-api-contract--call-this-dont-rebuild-it).

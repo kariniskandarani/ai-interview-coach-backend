@@ -25,7 +25,8 @@ from src.llm_client import LLMError
 from src.persistence import PersistenceError, list_sessions, save_session
 from src.profiler import build_candidate_profile
 from src.question_generator import generate_questions
-from src.schemas import CandidateProfile
+from src.report_builder import build_report
+from src.schemas import CandidateProfile, InterviewReport
 
 app = FastAPI(title="AI Job Interview Coach API")
 
@@ -121,6 +122,21 @@ def submit_answer(session_id: str, body: AnswerRequest):
             saved_session_id = None  # non-fatal -- user still sees their results
 
     return _session_state_response(session_id, session, saved_session_id)
+
+
+@app.get("/api/sessions/{session_id}/report", response_model=InterviewReport)
+def get_report(session_id: str):
+    session = _active_sessions.get(session_id)
+    profile = _profiles.get(session_id)
+    if session is None or profile is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if not session.finished:
+        raise HTTPException(status_code=400, detail="Interview isn't finished yet.")
+
+    try:
+        return build_report(profile, session.transcript)
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/api/sessions", response_model=list[PastSessionSummary])

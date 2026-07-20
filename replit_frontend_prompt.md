@@ -50,10 +50,10 @@ chat-like flow, and receives honest, specific, non-generic feedback on every ans
 
 ### Explicit scope boundaries — read before building
 
-- **There is no report/dashboard endpoint yet.** Do not build a dedicated analytics/report
-  page or invent an endpoint for it. After the interview finishes, show a simple completion
-  view built from data the `/answer` endpoint already returns (final transcript with each
-  question's score and feedback) — see Section 4.
+- **(Historical note: at the time this prompt was written, there was no report endpoint.
+  There is now — see `replit_report_feature_prompt.md` for that follow-up.)** After the
+  interview finishes, show a simple completion view built from data the `/answer` endpoint
+  already returns (final transcript with each question's score and feedback) — see Section 4.
 - **There is no authentication.** Do not build login/signup. This is a single-session demo
   tool.
 - **Do not add a persona picker** (e.g. "friendly interviewer" vs "tough interviewer") — the
