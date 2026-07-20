@@ -47,18 +47,31 @@ chunking strategy) and several days of complexity. That's a win, not a gap.
 | OpenAI GPT-4o-mini | Paid (no reliable free tier anymore) | Excellent quality, but violates the "free" constraint |
 | Local via Ollama | Free, no API limits | Needs decent GPU, slower, risky for a live demo if it lags/crashes |
 
-**Decision: Google Gemini API (`gemini-3.5-flash`)** as primary. It's free, has a large context
-window (supports the "no RAG needed" approach), and has reliable structured output (used
-heavily via Pydantic schemas so responses come back as validated JSON, not text that has to be
-regex-parsed — regex-parsing LLM output is a classic beginner trap that breaks
+**Original decision: Google Gemini API (`gemini-3.5-flash`)** as primary. It's free, has a
+large context window (supports the "no RAG needed" approach), and has reliable structured
+output (used heavily via Pydantic schemas so responses come back as validated JSON, not text
+that has to be regex-parsed — regex-parsing LLM output is a classic beginner trap that breaks
 unpredictably).
 
-The LLM calls stay behind a thin wrapper so swapping to Groq later (e.g., for faster demo
-responses) is a one-file change, not a rewrite.
+**Revised: switched to OpenRouter (`nvidia/nemotron-3-super-120b-a12b:free`).** Gemini's
+actual free-tier limit turned out to be far stingier than published third-party numbers
+suggested — confirmed directly from Google AI Studio's own dashboard: **5 requests/minute, 20
+requests/day per model**, not the "1,500/day" figure widely reported. A single interview
+session (10-18 calls) could burn most of a day's quota, making real testing and a live demo
+genuinely unreliable. OpenRouter's free tier gives 50 requests/day with no purchase, or
+1,000/day with a one-time $10 credit (not necessarily spent) — meaningfully more headroom.
+Model chosen specifically for confirmed **structured-output support** (the property this app
+depends on most, every call must return schema-valid JSON), not for context size or coding
+ability. Full reasoning and live-verification results: `BUILD_LOG.md`, `LEARNING_NOTES.md`.
+
+The LLM calls stay behind a thin wrapper (`generate_structured()` in `llm_client.py`) — this
+is exactly why the provider swap was a same-file change, not a rewrite of the app: nothing in
+`profiler.py`/`question_generator.py`/`evaluator.py`/`api/main.py` had to change at all.
 
 ### Orchestration: LangChain/LlamaIndex vs. raw SDK calls
 
-**Decision: raw Gemini SDK calls + a thin custom prompt/schema layer. No LangChain.**
+**Decision: raw SDK calls (OpenRouter via the `openai` package) + a thin custom prompt/schema
+layer. No LangChain.**
 
 Why: LangChain exists to standardize interchangeable chains across many LLM providers and
 retrieval backends. This project has ~5 well-defined LLM calls (analyze CV+JD, generate
@@ -163,7 +176,7 @@ this repo's test suite — low return on time invested, and it's a separate code
 | Language | Python (backend), TypeScript (frontend) |
 | Frontend | Next.js/React, generated via Replit, calling `api/` over HTTP |
 | Backend API | FastAPI (`api/`), thin wrapper around `src/` |
-| LLM | Google Gemini 3.5 Flash (free tier) |
+| LLM | `nvidia/nemotron-3-super-120b-a12b:free` via OpenRouter (free tier) |
 | Orchestration | Plain Python + Pydantic schemas (no framework) |
 | PDF parsing | pdfplumber |
 | Retrieval | None — full context stuffing |
@@ -201,13 +214,13 @@ this repo's test suite — low return on time invested, and it's a separate code
 │  interview_engine.py      →  state machine driving the Q&A loop   │
 │  evaluator.py              →  LLM call: answer → STAR/score/notes │
 │  report_builder.py         →  LLM call: all evals → final report  │
-│  llm_client.py              →  thin Gemini SDK wrapper + schemas  │
+│  llm_client.py              →  thin OpenRouter (OpenAI-compatible) wrapper + schemas │
 └───────────────────────────┬────────────────────────────────────────┘
                              │
               ┌──────────────┴───────────────┐
               ▼                               ▼
     ┌───────────────────┐          ┌────────────────────┐
-    │  Gemini API        │          │  Supabase (Postgres) │
+    │  OpenRouter API     │          │  Supabase (Postgres) │
     │  (all AI calls)    │          │  session history      │
     └───────────────────┘          └────────────────────┘
 ```

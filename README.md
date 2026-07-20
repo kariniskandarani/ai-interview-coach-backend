@@ -23,7 +23,7 @@
 | Language | Python |
 | Frontend | Next.js/React, generated via Replit, calling the FastAPI backend |
 | Backend API | FastAPI (`api/`) |
-| LLM | Google Gemini 3.5 Flash (free tier) |
+| LLM | `nvidia/nemotron-3-super-120b-a12b:free` via OpenRouter (free tier) |
 | PDF parsing | pdfplumber |
 | Structured output | Pydantic |
 | Persistence | Supabase (Postgres) |
@@ -34,7 +34,7 @@ Full reasoning behind every choice: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## API usage per session
 
-Every step of the pipeline is exactly one Gemini call, except answer evaluation, which can
+Every step of the pipeline is exactly one LLM call, except answer evaluation, which can
 trigger a second (a follow-up) per question:
 
 | Step | Calls |
@@ -51,12 +51,14 @@ With 8 questions per interview, one full session costs:
 - **Worst case** (every question triggers its one allowed follow-up): `1 + 1 + 16 = 18 calls`
 
 The follow-up cap is what bounds the worst case — without it, a strict evaluator could chain
-follow-ups indefinitely. This matters more than it sounds: the free tier's real limit turned
-out to be a stingy 5 requests/minute and 20 requests/**day** per model (not the far higher
-numbers third-party sources report) — a single session can burn most or all of a day's quota.
-See [LEARNING_NOTES.md](LEARNING_NOTES.md) and `BUILD_LOG.md`'s Version 6 entry for the full
-story. `GET /` returns a live `gemini_calls_since_start` counter (resets on process restart)
-if you want to track real usage rather than just the theoretical math above.
+follow-ups indefinitely. This project originally ran on Gemini, whose free tier turned out to
+be a stingy 5 requests/minute and 20 requests/**day** per model — a single session could burn
+most or all of a day's quota. Switched to OpenRouter's free tier instead (50-1,000 requests/day
+depending on account credit), which is why the LLM layer lives entirely behind
+`generate_structured()` in `llm_client.py` — the swap only touched that one file. Full story in
+[LEARNING_NOTES.md](LEARNING_NOTES.md) and `BUILD_LOG.md`. `GET /` returns a live
+`llm_calls_since_start` counter (resets on process restart) if you want to track real usage
+rather than just the theoretical math above.
 
 ## Setup
 
@@ -64,15 +66,16 @@ if you want to track real usage rather than just the theoretical math above.
 python -m venv .venv
 .venv\Scripts\pip install -r requirements-dev.txt   # includes test dependencies
 
-copy .env.example .env   # then fill in your GEMINI_API_KEY
+copy .env.example .env   # then fill in your OPENROUTER_API_KEY
 ```
 
-### Getting a Gemini API key (free)
+### Getting an OpenRouter API key (free)
 
-1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with any
-   Google account.
-2. Click **"Create API key"** (choose "Create API key in new project" if asked).
-3. Copy the key it generates and paste it into `.env` as `GEMINI_API_KEY=...`.
+1. Go to [openrouter.ai](https://openrouter.ai) and sign in.
+2. Go to [openrouter.ai/keys](https://openrouter.ai/keys) and click **"Create Key"**.
+3. Give it a name; optionally set a credit limit on the key itself (a genuine hard spending
+   cap, unlike Google Cloud's alert-only budgets).
+4. Copy the generated key (`sk-or-...`) and paste it into `.env` as `OPENROUTER_API_KEY=...`.
 
 Run the tests:
 

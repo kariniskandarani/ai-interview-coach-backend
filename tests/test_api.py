@@ -32,7 +32,7 @@ def test_health_check():
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert "gemini_calls_since_start" in body
+    assert "llm_calls_since_start" in body
 
 
 def test_upload_success(monkeypatch):

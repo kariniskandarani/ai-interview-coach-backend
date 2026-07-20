@@ -7,9 +7,13 @@ what each one is for. Full reasoning for each choice lives in
 
 ## AI / LLM
 
-- **Google Gemini API** (`gemini-3.5-flash`) — powers every AI call in the pipeline (CV/JD
-  analysis, question generation, answer evaluation). Free tier via
-  [Google AI Studio](https://aistudio.google.com/apikey).
+- **OpenRouter** (`nvidia/nemotron-3-super-120b-a12b:free`) — powers every AI call in the
+  pipeline (CV/JD analysis, question generation, answer evaluation), via the OpenAI-compatible
+  `openai` Python package pointed at OpenRouter's API. Free tier via
+  [openrouter.ai/keys](https://openrouter.ai/keys) — 50-1,000 requests/day depending on
+  account credit. Switched from Google Gemini after its free tier turned out to be a much
+  stingier 5 requests/minute / 20 requests/day per model than commonly reported — see
+  [LEARNING_NOTES.md](LEARNING_NOTES.md) and `BUILD_LOG.md`'s Version 7 entry.
 - **Claude Code** — AI pair-programming assistant used to design and build the entire project
   (architecture, backend, tests, docs, this file included).
 
@@ -18,7 +22,7 @@ what each one is for. Full reasoning for each choice lives in
 - **FastAPI** (`api/`) — thin HTTP wrapper around the business logic in `src/`, so a
   separately-hosted frontend can call it.
 - **Pydantic** — schema definitions for every structured LLM response and API
-  request/response; also what makes Gemini's structured-output mode work.
+  request/response; also what makes OpenRouter's `response_format: json_schema` mode work.
 - **pdfplumber** — extracts text from uploaded CV PDFs.
 
 ## Frontend

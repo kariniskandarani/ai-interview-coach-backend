@@ -445,3 +445,77 @@ while the daily quota for `3.5-flash` resets.
 
 **Verification:** 32/32 offline tests passing, including a new test asserting daily-quota
 errors fail immediately without calling `time.sleep` at all.
+
+---
+
+## Version 7 — Provider swap: Gemini to OpenRouter, plus call logging (Day 2/3)
+
+Even after switching to `gemini-2.5-flash` in Version 6, the underlying problem remained: 5
+requests/minute and 20 requests/day per model on Gemini's free tier is fundamentally too low
+for reliable testing and a live demo, regardless of which specific Gemini model is used (same
+limits apply per-model). Decided to switch providers rather than keep working around a ceiling
+that low.
+
+### `llm_client.py` — full rewrite
+
+**Provider:** OpenRouter, using `nvidia/nemotron-3-super-120b-a12b:free`. Chosen over
+OpenRouter's other free models specifically because it was called out for **"stricter
+structured output control"** in research — the single property this app depends on most, since
+every call must return JSON matching a Pydantic schema, every time. Rejected `openrouter/free`
+(the auto-router that picks a random free model per call) despite its convenience, because
+picking a *different* underlying model between the profile call, question call, and each
+evaluation within one interview risks inconsistent tone/quality mid-session.
+
+**What changed, concretely:**
+- Client: `openai.OpenAI(base_url="https://openrouter.ai/api/v1", api_key=...)` instead of
+  `genai.Client()` — OpenRouter is fully OpenAI-API-compatible, no new/unusual SDK needed.
+- Schema: built manually via `response_schema.model_json_schema()` and passed as
+  `response_format={"type": "json_schema", "json_schema": {...}}`, instead of handing the
+  Pydantic class directly to the SDK (Gemini's `response_schema=` did the conversion for us).
+- Response: `response.choices[0].message.content` is a **JSON string** we validate ourselves
+  via `response_schema.model_validate_json(...)`, instead of Gemini's `.parsed` giving us an
+  already-validated instance for free.
+- System instruction: becomes a `{"role": "system", ...}` message in the `messages` list,
+  instead of a dedicated SDK parameter.
+- Rate-limit detection got **cleaner**, not messier: the `openai` package raises a proper
+  typed `openai.RateLimitError`, so the retry logic no longer needs to string-match `"429"` in
+  a generic exception the way the Gemini SDK forced us to.
+- Dropped the Gemini-specific `_is_daily_quota_error()` daily-vs-per-minute distinction from
+  Version 6 — OpenRouter's error format doesn't expose an equivalent `quotaId` to distinguish
+  them, so retry logic is simpler now (retry any `RateLimitError` with backoff, same as before
+  minus the special-cased daily check). Noted as a known simplification, not a regression --
+  OpenRouter's daily ceiling (50-1,000/day) is high enough that this matters far less than it
+  did on Gemini's 20/day.
+
+**Confirmed the exact scope of the blast radius before starting, not just assumed it:** grepped
+the whole codebase for anything outside `llm_client.py` touching Gemini-specific internals
+(`genai`, `.parsed`, `_get_client`) — found nothing. Every other module only ever imports
+`generate_structured` and `LLMError`, so the swap stayed contained to one file, confirming the
+Day-1 decision to keep this behind a thin wrapper was worth it.
+
+**Testing:** completely rewrote the mocks in `tests/test_llm_client.py` to match the `openai`
+client's shape (`client.chat.completions.create(...)`, `openai.RateLimitError` constructed via
+a real minimal `httpx.Response` rather than string content) instead of the Gemini SDK's shape.
+Added two new tests beyond what existed before: empty response content, and schema-validation
+failure on malformed JSON — neither was really testable the same way under Gemini, since
+`.parsed` being `None` was the only failure signal available there.
+
+**Verification:** live-tested against the real OpenRouter API at every level of the pipeline,
+not just a toy schema — `smoke_test_llm.py` (basic `Greeting`), `smoke_test_profiler.py`
+(`CandidateProfile`, real personalized output), and `smoke_test_interview_engine.py`
+(`Evaluation`, including the nullable `star_feedback` field, which is the real test of
+strict-mode JSON schema compatibility). All passed cleanly on the first attempt, including the
+nullable-field case — no schema adjustments needed. Follow-up logic, the 1-follow-up cap, and
+answer-relevance judgment all matched the quality already seen under Gemini.
+
+### Call logging and counter, for real visibility into usage
+
+Added structured logging to every real call in `generate_structured()` (schema name, attempt
+number, running total) plus a module-level `call_count`, exposed via `GET /` as
+`llm_calls_since_start`. Motivation: after being burned by Gemini's quota surprises, theoretical
+math ("this should cost N calls") wasn't trustworthy enough on its own — this gives a real,
+observable number from actual server logs/the health endpoint instead.
+
+**Verification:** confirmed live on the deployed Render instance — `GET /` returned
+`{"status": "ok", "llm_calls_since_start": 0}` immediately after a fresh deploy, confirming the
+counter initializes correctly and the endpoint change is live.

@@ -1,6 +1,6 @@
-"""Manual, one-off check that llm_client.py can actually reach Gemini and get a
+"""Manual, one-off check that llm_client.py can actually reach OpenRouter and get a
 structured response back. Not part of the pytest suite on purpose — this makes a
-real network call and needs a real GEMINI_API_KEY.
+real network call and needs a real OPENROUTER_API_KEY.
 
 Run with:
     .venv\\Scripts\\python scripts\\smoke_test_llm.py

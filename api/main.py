@@ -69,7 +69,7 @@ def _session_state_response(
 
 @app.get("/")
 def health():
-    return {"status": "ok", "gemini_calls_since_start": llm_client.call_count}
+    return {"status": "ok", "llm_calls_since_start": llm_client.call_count}
 
 
 @app.post("/api/upload", response_model=UploadResponse)
