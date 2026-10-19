@@ -6,3 +6,6 @@ venv/
 *.db
 .pytest_cache/
 .streamlit/secrets.toml
+
+# Personal notes, not for the repo
+docs/hackathon_submission_qna.md
