@@ -15,8 +15,8 @@ current session) — **auth itself does not go through our FastAPI backend at al
 ## Supabase project details
 
 ```
-SUPABASE_URL=https://kvpcsmezmidelrozodiz.supabase.co
-SUPABASE_ANON_KEY=sb_publishable_FCs2aQY6TPCKdbKdIuT_PA_SCxXAg3E
+SUPABASE_URL=<your-project>.supabase.co
+SUPABASE_ANON_KEY=<your-publishable-key>
 ```
 
 This "publishable" key is specifically designed to be safe to embed in frontend code (it's

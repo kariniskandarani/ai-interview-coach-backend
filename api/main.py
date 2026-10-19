@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.schemas import (
     AnswerRequest,
     PastSessionSummary,
+    SavedSessionResponse,
     SessionStateResponse,
     TranscriptEntryOut,
     UploadResponse,
@@ -23,7 +24,7 @@ from src.document_processor import (
 from src.interview_engine import InterviewEngineError, InterviewSession
 from src import llm_client
 from src.llm_client import LLMError
-from src.persistence import PersistenceError, list_sessions, save_session
+from src.persistence import PersistenceError, get_saved_session, list_sessions, save_session
 from src.profiler import build_candidate_profile
 from src.question_generator import generate_questions
 from src.report_builder import build_report
@@ -177,3 +178,25 @@ def get_past_sessions(authorization: str | None = Header(default=None)):
         PastSessionSummary(id=r["id"], created_at=r["created_at"], role_type=r["role_type"])
         for r in rows
     ]
+
+
+@app.get("/api/history/{session_id}", response_model=SavedSessionResponse)
+def get_past_session(session_id: str, authorization: str | None = Header(default=None)):
+    user_id = _get_user_id(authorization)
+    if user_id is None:
+        raise HTTPException(
+            status_code=401, detail="Log in to view your interview history."
+        )
+
+    try:
+        row = get_saved_session(session_id, user_id)
+    except PersistenceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Interview not found.")
+    return SavedSessionResponse(
+        id=row["id"],
+        created_at=row["created_at"],
+        role_type=row["role_type"],
+        transcript=row["transcript"],
+    )

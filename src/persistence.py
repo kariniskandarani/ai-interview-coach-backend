@@ -81,3 +81,22 @@ def list_sessions(user_id: str) -> list[dict]:
         raise PersistenceError(f"Failed to list interview sessions: {exc}") from exc
 
     return response.data
+
+
+def get_saved_session(session_id: str, user_id: str) -> dict | None:
+    """Return one saved session (id, created_at, role_type, transcript) if it exists AND
+    belongs to user_id; otherwise None. Ownership is enforced in the query itself, so
+    another user's session id is indistinguishable from a nonexistent one."""
+    client = _get_client()
+    try:
+        response = (
+            client.table(TABLE_NAME)
+            .select("id, created_at, role_type, transcript")
+            .eq("id", session_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise PersistenceError(f"Failed to load interview session: {exc}") from exc
+
+    return response.data[0] if response.data else None

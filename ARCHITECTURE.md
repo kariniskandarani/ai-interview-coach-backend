@@ -174,7 +174,7 @@ plan was Streamlit Community Cloud, which stopped being relevant once the fronte
 Streamlit. Render hosts `api/` (FastAPI) — free, no credit card, straightforward GitHub-connected
 deploy; free-tier caveat: spins down after 15 min idle, ~1 min cold start on the next request,
 worth warming up before a live demo. The frontend (generated via Replit, see
-[replit_frontend_prompt.md](replit_frontend_prompt.md)) deploys to Cloudflare Workers via the
+[docs/prompts/01-frontend.md](docs/prompts/01-frontend.md)) deploys to Cloudflare Workers via the
 `@opennextjs/cloudflare` adapter — free tier: 100,000 requests/day, 10ms CPU time/request
 (compute only, not time spent waiting on the backend API call).
 

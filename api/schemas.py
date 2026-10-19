@@ -38,3 +38,10 @@ class PastSessionSummary(BaseModel):
     id: str
     created_at: str
     role_type: str
+
+
+class SavedSessionResponse(BaseModel):
+    id: str
+    created_at: str
+    role_type: str
+    transcript: list[TranscriptEntryOut]

@@ -1,11 +1,10 @@
 # AI Job Interview Coach
 
 > Upload your CV and a job description, and get a personalized mock interview with
-> real-time feedback and a final readiness report — built for [hackathon name] in 4 days.
+> real-time feedback and a final readiness report — built in 4 days.
 
 **Status:** ✅ Core AI pipeline complete and live-verified (profile → questions → interview
-loop with follow-ups → final report). Backend deployed on Render; frontend generated via
-Replit.
+loop with follow-ups → final report). Backend deployed on Render; frontend deployed on Cloudflare.
 
 ---
 
@@ -16,14 +15,14 @@ Replit.
 - Evaluates each answer (STAR structure, clarity, scoring) with live feedback
 - Produces a final report: readiness score, strengths, weaknesses, study plan
 
-*(Demo link / screenshots go here once there's a UI to show.)*
+**Live demo:** https://ai-interview-coach-frontend.kariniskandarani2000.workers.dev/ · **Walkthrough:** https://ka.nz/ai/kariniskandarani
 
 ## Tech stack
 
 | Layer | Choice |
 |---|---|
 | Language | Python |
-| Frontend | Next.js/React, generated via Replit, calling the FastAPI backend |
+| Frontend | React + TypeScript (Vite), built with AI coding tools, calling the FastAPI backend ([repo](https://github.com/kariniskandarani/ai-interview-coach-frontend)) |
 | Backend API | FastAPI (`api/`) |
 | LLM | `nvidia/nemotron-3-super-120b-a12b:free` via OpenRouter (free tier) |
 | PDF parsing | pdfplumber |
@@ -112,11 +111,12 @@ Run the tests:
 | `POST` | `/api/sessions/{session_id}/answer` | Submit an answer → evaluation + next question |
 | `GET` | `/api/sessions/{session_id}/report` | Generate the final readiness report (opt-in, only once the interview is finished) |
 | `GET` | `/api/sessions` | List the logged-in user's past sessions. **Requires** `Authorization: Bearer <token>` — `401` without one |
+| `GET` | `/api/history/{session_id}` | Fetch one saved past session (full transcript with scores). **Requires** `Authorization: Bearer <token>`; `404` if it does not exist or belongs to another user |
 
-Full request/response shapes for each: [replit_frontend_prompt.md](replit_frontend_prompt.md#4-api-contract--call-this-dont-rebuild-it).
+Full request/response shapes for each: [docs/prompts/01-frontend.md](docs/prompts/01-frontend.md#4-api-contract--call-this-dont-rebuild-it).
 
 The frontend lives in a separate repo/deployment (see
-[replit_frontend_prompt.md](replit_frontend_prompt.md)), generated via Replit and calling this
+[docs/prompts/01-frontend.md](docs/prompts/01-frontend.md)), built with AI coding tools and calling this
 API over HTTP.
 
 ## Project docs

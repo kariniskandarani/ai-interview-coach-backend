@@ -268,3 +268,51 @@ def test_upload_without_auth_header_succeeds_as_guest(monkeypatch):
     )
 
     assert response.status_code == 200
+
+
+def test_get_past_session_success(monkeypatch):
+    monkeypatch.setattr("api.main.get_user_id_from_token", lambda token: "user-123")
+    monkeypatch.setattr(
+        "api.main.get_saved_session",
+        lambda session_id, user_id: {
+            "id": session_id,
+            "created_at": "2026-07-19T00:00:00",
+            "role_type": "Backend Engineer",
+            "transcript": [
+                {
+                    "question_text": "Question 1",
+                    "category": "Technical",
+                    "answer_text": "My answer",
+                    "evaluation": {
+                        "score": 8,
+                        "star_feedback": None,
+                        "clarity_feedback": "Clear.",
+                        "relevance_feedback": "Relevant.",
+                        "follow_up_needed": False,
+                        "follow_up_question": None,
+                    },
+                }
+            ],
+        },
+    )
+
+    response = client.get("/api/history/abc", headers={"Authorization": "Bearer faketoken"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "abc"
+    assert body["transcript"][0]["evaluation"]["score"] == 8
+
+
+def test_get_past_session_not_found_or_not_owned(monkeypatch):
+    monkeypatch.setattr("api.main.get_user_id_from_token", lambda token: "user-123")
+    monkeypatch.setattr("api.main.get_saved_session", lambda session_id, user_id: None)
+
+    response = client.get("/api/history/abc", headers={"Authorization": "Bearer faketoken"})
+
+    assert response.status_code == 404
+
+
+def test_get_past_session_without_auth_returns_401():
+    response = client.get("/api/history/abc")
+    assert response.status_code == 401

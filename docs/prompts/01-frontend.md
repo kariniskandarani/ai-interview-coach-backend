@@ -51,7 +51,7 @@ chat-like flow, and receives honest, specific, non-generic feedback on every ans
 ### Explicit scope boundaries — read before building
 
 - **(Historical note: at the time this prompt was written, there was no report endpoint.
-  There is now — see `replit_report_feature_prompt.md` for that follow-up.)** After the
+  There is now — see `docs/prompts/07-report-feature.md` for that follow-up.)** After the
   interview finishes, show a simple completion view built from data the `/answer` endpoint
   already returns (final transcript with each question's score and feedback) — see Section 4.
 - **There is no authentication.** Do not build login/signup. This is a single-session demo

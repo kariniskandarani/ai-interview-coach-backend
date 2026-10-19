@@ -387,7 +387,7 @@ command `uvicorn api.main:app --host 0.0.0.0 --port $PORT`, `.python-version` pi
 to match local dev). Verified live: health check, `/docs`, a real `/api/upload` call, and
 `/api/sessions` reading real Supabase data — all working in production, not just locally.
 
-Frontend generated via Replit from `replit_frontend_prompt.md`, with the real Render URL
+Frontend generated via Replit from `docs/prompts/01-frontend.md`, with the real Render URL
 filled in as the base URL. First real end-to-end usage through the generated frontend hit a
 genuine `429` rate-limit error from Gemini.
 
@@ -572,9 +572,9 @@ distributed systems) — the exact behavior the innovation feature was designed 
 
 ### Frontend follow-up
 
-The original `replit_frontend_prompt.md` explicitly told Replit's Agent *not* to build a
+The original `docs/prompts/01-frontend.md` explicitly told Replit's Agent *not* to build a
 report feature, since the endpoint didn't exist yet at the time. Wrote a new
-`replit_report_feature_prompt.md` for this specific addition, rather than editing the
+`docs/prompts/07-report-feature.md` for this specific addition, rather than editing the
 already-used original prompt (which wouldn't retroactively change what was already built).
 
 ---
@@ -668,7 +668,7 @@ Both passed cleanly. 48/48 offline tests passing throughout.
 
 ### Frontend follow-up
 
-`replit_auth_prompt.md` (new): login/signup UI, the "Try Me" guest path, and exactly which two
+`docs/prompts/04-auth.md` (new): login/signup UI, the "Try Me" guest path, and exactly which two
 endpoints need the `Authorization` header attached (`/api/upload` and `/api/sessions`) and
 which don't. Includes the real Supabase project URL and the publishable (safe-for-frontend)
 API key.
